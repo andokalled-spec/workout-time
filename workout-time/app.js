@@ -6401,7 +6401,8 @@ class VitruvianApp {
       cables: 2,
       justLift: false,
       stopAtTop: false,
-      progressionKg: 0,                    // reuse progression logic if desired
+      progressionKg: 0,
+      intensity: 'none',                    // intensity technique (none|dropset|restpause|slownegatives)                    // reuse progression logic if desired
     };
   }
 
@@ -6766,6 +6767,17 @@ class VitruvianApp {
           </div>
 
           ${commonHtml}
+
+          
+<div class="form-group">
+  <label>Intensity Technique</label>
+  <select onchange="app.updatePlanField(${i}, 'intensity', this.value)">
+    <option value="none" ${item.intensity==='none'?'selected':''}>None (default)</option>
+    <option value="dropset" ${item.intensity==='dropset'?'selected':''}>Dropset</option>
+    <option value="restpause" ${item.intensity==='restpause'?'selected':''}>Rest-Pause</option>
+    <option value="slownegatives" ${item.intensity==='slownegatives'?'selected':''}>Slow negatives</option>
+  </select>
+</div>
         `;
       } else {
         // echo
