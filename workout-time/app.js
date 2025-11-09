@@ -7059,6 +7059,403 @@ class VitruvianApp {
 
 
 
+
+// =========================
+// PROGRESSION EXTENSIONS
+// =========================
+(function () {
+  const App = window.VitruvianApp && window.VitruvianApp.prototype ? window.VitruvianApp.prototype : null;
+  if (!App) return;
+
+  // ---- Units / rounding helpers ----
+  App.getUnitGranularity = function getUnitGranularity() {
+    // kg uses 0.5 steps; lb uses 1.0 steps
+    return this.getUnitLabel && this.getUnitLabel() === "lb" ? 1 : 0.5;
+  };
+  App.snapDisplayUnits = function snapDisplayUnits(unitsValue) {
+    const g = this.getUnitGranularity();
+    return Math.round(unitsValue / g) * g;
+  };
+  App.addPerCableInKg = function addPerCableInKg(kgNow, unitsDelta) {
+    // unitsDelta is in the display units (kg or lb). Convert → add → round to the granularity.
+    const toKg = (this.convertDisplayToKg ? this.convertDisplayToKg(unitsDelta) : unitsDelta);
+    const rawKg = Math.max(0, (Number(kgNow) || 0) + toKg);
+    // snap via display domain then convert back (preserves .5kg or 1lb increments exactly)
+    const units = (this.convertKgToDisplay ? this.convertKgToDisplay(rawKg) : rawKg);
+    const snappedUnits = this.snapDisplayUnits(units);
+    return (this.convertDisplayToKg ? this.convertDisplayToKg(snappedUnits) : snappedUnits);
+  };
+
+  // ---- Detect whether an exercise can be auto‑progressed per user’s “field setting” in the plan sidebar ----
+  // We support multiple common property names to play nice with existing plan item UIs.
+  App.isProgressionAllowedByPlanField = function isProgressionAllowedByPlanField(item) {
+    // If you already have a checkbox/toggle in your sidebar, wire it to any of these:
+    //   allowProgression === true, progressible === true, canProgress === true
+    // And we’ll respect explicit disables like: disableProgression, locked, lockProgression
+    if (!item || item.type !== "exercise") return false;
+    if (item.disableProgression || item.lockProgression || item.locked) return false;
+    if (item.allowProgression === true || item.progressible === true || item.canProgress === true) return true;
+    // Default: if no explicit flag present, assume allowed (matches your request to “use the field”, but still
+    // works for plans created before the toggle existed)
+    return true;
+  };
+
+  // ---- Normalize summary.sets[] (be liberal in what we accept) ----
+  App._normalizeSummarySet = function _normalizeSummarySet(raw) {
+    // returns a canonical shape used by the progression logic
+    if (!raw) return null;
+    const getNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+    const name = raw.name || raw.itemName || raw.exercise || "";
+    const itemIndex = getNum(raw.itemIndex);
+    const set = getNum(raw.set) || getNum(raw.setIndex) || null;
+    const type = (raw.type || "").toLowerCase() || (name && name.toLowerCase().includes("echo") ? "echo" : "exercise");
+    const justLift = !!(raw.justLift || raw.unlimited || raw.isUnlimited);
+    const warmup = !!(raw.isWarmup || raw.warmup);
+    const failure = !!(raw.failure || raw.isFailure || raw.failed);
+    const microIndex = getNum(raw.microIndex);
+    const intensity = (raw.intensity || raw.intensityType || "none").toLowerCase();
+    // reps: actual / target
+    const actual =
+      getNum(raw.actualReps) ??
+      (raw.reps && getNum(raw.reps.actual)) ??
+      getNum(raw.achievedReps) ??
+      getNum(raw.completedReps) ??
+      null;
+    const target =
+      getNum(raw.targetReps) ??
+      (raw.reps && getNum(raw.reps.target)) ??
+      getNum(raw.plannedReps) ??
+      null;
+    const stopAtTop = !!(raw.stopAtTop || raw.autoStopTop);
+    const perCableKg = getNum(raw.perCableKg);
+    return {
+      name,
+      itemIndex,
+      set,
+      type,
+      justLift,
+      warmup,
+      failure,
+      microIndex: Number.isInteger(microIndex) ? microIndex : null,
+      intensity,
+      actualReps: actual,
+      targetReps: target,
+      stopAtTop,
+      perCableKg
+    };
+  };
+
+  // ---- Build microset-friendly summary (also used to drive eligibility logic) ----
+  const _finalizePlanSummary = App.finalizePlanSummary;
+  App.finalizePlanSummary = function finalizePlanSummaryPatched() {
+    const s = (typeof _finalizePlanSummary === "function") ? _finalizePlanSummary.call(this) : (this._planSummary || null);
+    if (!s || !Array.isArray(s.sets)) return s;
+    // If _activePlanEntry.microIndex was carried through, many implementations already persisted it.
+    // If not, we leave the array but don’t break anything.
+    s.sets = s.sets.map((raw) => {
+      const n = this._normalizeSummarySet(raw) || raw;
+      // Tag visible label for microsets so the summary lists intensity techniques explicitly
+      if (n && Number.isInteger(n.microIndex) && (n.intensity === "dropset" || n.intensity === "restpause" || n.intensity === "slownegatives")) {
+        const tag =
+          n.intensity === "dropset" ? "Drop set" :
+          n.intensity === "restpause" ? "Rest‑pause" :
+          "Slow negatives";
+        // Put a friendly label on the set (UI code can use it if desired)
+        n.label = `${n.name || "Exercise"} — ${tag} (micro ${n.microIndex})`;
+      }
+      return n;
+    });
+    return s;
+  };
+
+  // ---- Eligibility (implements your Q&A exactly) ----
+  App._collectProgressionCandidates = function _collectProgressionCandidates(summary) {
+    const toArr = (x) => (Array.isArray(x) ? x : []);
+    const sets = toArr(summary?.sets).map((x) => this._normalizeSummarySet(x) || x).filter(Boolean);
+    const items = Array.isArray(this.planItems) ? this.planItems : [];
+
+    const unit = this.getUnitLabel ? this.getUnitLabel() : "kg";
+    const eligible = [];
+    const ineligible = [];
+
+    // Group sets by plan item index, fallback by name if itemIndex is missing
+    const byIdx = new Map();
+    const byName = new Map();
+    for (const s of sets) {
+      if (Number.isInteger(s.itemIndex)) {
+        if (!byIdx.has(s.itemIndex)) byIdx.set(s.itemIndex, []);
+        byIdx.get(s.itemIndex).push(s);
+      } else if (s.name) {
+        const key = s.name.toLowerCase();
+        if (!byName.has(key)) byName.set(key, []);
+        byName.get(key).push(s);
+      }
+    }
+
+    const getItemSets = (idx, name) => {
+      if (byIdx.has(idx)) return byIdx.get(idx);
+      if (name && byName.has(name.toLowerCase())) return byName.get(name.toLowerCase());
+      return [];
+    };
+
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (!item || (item.type || "exercise") !== "exercise") {
+        ineligible.push({ itemIndex: i, name: item?.name || `Item ${i+1}`, reason: "Echo items don’t qualify." });
+        continue;
+      }
+      // Bodyweight/adaptive load (0 kg)
+      const perCableKg = Number(item.perCableKg) || 0;
+      if (perCableKg <= 0) {
+        ineligible.push({ itemIndex: i, name: item.name || `Exercise ${i+1}`, reason: "Bodyweight/adaptive load." });
+        continue;
+      }
+      // Just Lift (AMRAP/unlimited) disqualifies
+      const justLift = !!item.justLift || !Number.isFinite(Number(item.reps)) || Number(item.reps) <= 0;
+      if (justLift) {
+        ineligible.push({ itemIndex: i, name: item.name || `Exercise ${i+1}`, reason: "AMRAP / Just Lift doesn’t qualify." });
+        continue;
+      }
+      // Respect sidebar field setting (user’s “allowed to adjust?”)
+      if (!this.isProgressionAllowedByPlanField(item)) {
+        ineligible.push({ itemIndex: i, name: item.name || `Exercise ${i+1}`, reason: "Exercise is locked in the plan." });
+        continue;
+      }
+      // Evaluate the sets
+      const plannedSets = Math.max(1, Number(item.sets) || 1);
+      const itemSets = getItemSets(i, item.name).filter(s => !s.warmup); // exclude warmups
+      // Microsets from intensity techniques are NOT required
+      const workingSets = itemSets.filter(s => !Number.isInteger(s.microIndex));
+
+      if (workingSets.length < plannedSets) {
+        ineligible.push({ itemIndex: i, name: item.name || `Exercise ${i+1}`, reason: "All planned sets must be completed." });
+        continue;
+      }
+
+      // Target reps rule: “completion of reps set” => actual >= target (not applicable to Echo/Just Lift)
+      const anyBelowTarget = workingSets.some(s => {
+        const actual = Number(s.actualReps);
+        const target = Number(s.targetReps);
+        if (!Number.isFinite(actual) || !Number.isFinite(target)) return true; // missing counts -> treat as not met
+        return actual < target;
+      });
+
+      // Failure in any set disqualifies (but stop‑at‑top is acceptable as long as reps were met)
+      const anyFailure = workingSets.some(s => s.failure === true);
+
+      if (anyBelowTarget || anyFailure) {
+        ineligible.push({ itemIndex: i, name: item.name || `Exercise ${i+1}`, reason: anyFailure ? "A set was marked failure." : "A set was below target reps." });
+        continue;
+      }
+
+      // At this point: qualifies
+      eligible.push({
+        itemIndex: i,
+        name: item.name || `Exercise ${i+1}`,
+        currentPerCableKg: perCableKg,
+        unit
+      });
+    }
+
+    return { eligible, ineligible };
+  };
+
+  // ---- Render + show dialog ----
+  App._renderProgressionDialog = function _renderProgressionDialog(candidates) {
+    const dlg = document.getElementById("progressionDialog");
+    const listOK = document.getElementById("progressionEligibleList");
+    const listNo = document.getElementById("progressionIneligibleList");
+    const ineligibleWrap = document.getElementById("progressionIneligibleContainer");
+    const g = this.getUnitGranularity();
+    const unit = this.getUnitLabel ? this.getUnitLabel() : "kg";
+    const decimals = this.getWeightInputDecimals ? this.getWeightInputDecimals() : (unit === "lb" ? 0 : 1);
+
+    if (!dlg || !listOK || !listNo) return;
+    listOK.innerHTML = "";
+    listNo.innerHTML = "";
+
+    candidates.eligible.forEach((e) => {
+      const displayNow = this.convertKgToDisplay ? this.convertKgToDisplay(e.currentPerCableKg) : e.currentPerCableKg;
+      const wrapper = document.createElement("div");
+      wrapper.className = "progression-row";
+      wrapper.style.margin = "0 0 .5rem 0";
+      wrapper.innerHTML = `
+        <label style="display:flex;align-items:center;gap:.5rem;">
+          <span style="min-width:10rem;">${e.name}</span>
+          <span style="opacity:.75">now: ${displayNow.toFixed(decimals)} ${unit}/cable</span>
+          <input
+            type="number"
+            step="${g}"
+            min="0"
+            value="0"
+            data-item-index="${e.itemIndex}"
+            aria-label="Increment for ${e.name} in ${unit}"
+            style="width:6rem;text-align:right;"
+          />
+          <span>${unit}</span>
+        </label>`;
+      listOK.appendChild(wrapper);
+    });
+
+    if (candidates.ineligible.length) {
+      ineligibleWrap.open = false; // collapsed by default
+      candidates.ineligible.forEach((e) => {
+        const row = document.createElement("div");
+        row.style.margin = "0 0 .25rem 0";
+        row.textContent = `${e.name}: ${e.reason}`;
+        listNo.appendChild(row);
+      });
+    } else {
+      ineligibleWrap.open = false;
+      listNo.innerHTML = "<div>—</div>";
+    }
+  };
+
+  // ---- Apply + persist deltas ----
+  App._applyProgressionFromDialog = async function _applyProgressionFromDialog() {
+    const dlg = document.getElementById("progressionDialog");
+    if (!dlg) return;
+
+    const inputs = Array.from(dlg.querySelectorAll('input[type="number"][data-item-index]'));
+    const deltas = [];
+    for (const input of inputs) {
+      const idx = Number(input.getAttribute("data-item-index"));
+      const incUnits = Number(input.value) || 0;
+      if (idx >= 0 && incUnits > 0) {
+        deltas.push({ itemIndex: idx, incUnits });
+      }
+    }
+    if (!deltas.length) {
+      this.addLogEntry?.("No increments selected — nothing to update.", "info");
+      return;
+    }
+
+    // Update plan items in memory
+    const updated = [];
+    for (const { itemIndex, incUnits } of deltas) {
+      const item = this.planItems?.[itemIndex];
+      if (!item || (item.type || "exercise") !== "exercise") continue;
+      const beforeKg = Number(item.perCableKg) || 0;
+      const afterKg = this.addPerCableInKg(beforeKg, incUnits);
+      item.perCableKg = afterKg;
+      updated.push({ itemIndex, name: item.name || `Exercise ${itemIndex+1}`, incUnits });
+    }
+
+    // Persist: local first, Dropbox if connected
+    try {
+      await this._persistPlanAfterProgression(updated);
+    } catch (e) {
+      this.addLogEntry?.(`Failed to save plan: ${e.message}`, "error");
+      throw e;
+    }
+
+    // Audit note in last workout (so it shows up in history/JSON)
+    try {
+      this._appendAutoProgressionAuditToLastWorkout?.(updated);
+    } catch {}
+
+    // Toast
+    const unit = this.getUnitLabel ? this.getUnitLabel() : "kg";
+    const msg = updated.map(u => `${u.name} +${this.snapDisplayUnits(u.incUnits)} ${unit}`).join(", ");
+    this.addLogEntry?.(`Progression applied: ${msg}`, "success");
+  };
+
+  // ---- Persist helpers (localStorage + Dropbox sync) ----
+  App._persistPlanAfterProgression = async function _persistPlanAfterProgression(updated) {
+    // If your app has a named plan, prefer that. We try a few common places.
+    const name = (this.planName || this.currentPlanName || "My Plan");
+    // Local storage strategy: update an index map if present, otherwise save a “draft”
+    const items = Array.isArray(this.planItems) ? this.planItems : [];
+    try {
+      const key1 = "vitruvian.plans.index";
+      const key2 = "vitruvian.plan.draft";
+      const existing = JSON.parse(localStorage.getItem(key1) || "{}");
+      existing[name] = items.map(it => ({ ...it }));
+      localStorage.setItem(key1, JSON.stringify(existing));
+      // Keep a quick “draft” copy as well for instant reloads
+      localStorage.setItem(key2, JSON.stringify({ name, items: existing[name] }));
+    } catch (e) {
+      // Non‑fatal — user may be in private mode
+      this.addLogEntry?.(`Local save skipped: ${e.message}`, "warning");
+    }
+    // Dropbox if available
+    if (this.dropbox && typeof this.dropbox.savePlanIfConnected === "function") {
+      const ok = await this.dropbox.savePlanIfConnected(name, items);
+      if (!ok && this.dropbox.isConnected) {
+        throw new Error("Dropbox save failed");
+      }
+    }
+  };
+
+  // ---- Append audit note into last saved workout in memory (picked up by your existing save flow) ----
+  App._appendAutoProgressionAuditToLastWorkout = function _appendAutoProgressionAuditToLastWorkout(updated) {
+    if (!Array.isArray(this.workoutHistory) || this.workoutHistory.length === 0) return;
+    const last = this.workoutHistory[0]; // assuming newest first in UI
+    if (!last) return;
+    const unit = this.getUnitLabel ? this.getUnitLabel() : "kg";
+    const items = updated.map(u => ({ itemIndex: u.itemIndex, name: u.name, delta: this.snapDisplayUnits(u.incUnits), unit }));
+    last.autoProgressionApplied = (Array.isArray(last.autoProgressionApplied) ? last.autoProgressionApplied : []).concat(items);
+  };
+
+  // ---- Hook after the summary shows; open progression box after the user closes it (or shortly after) ----
+  App._scheduleProgressionPrompt = function _scheduleProgressionPrompt(summary) {
+    const candidates = this._collectProgressionCandidates(summary);
+    if (!candidates.eligible.length) return; // nothing to do
+    // Try to attach to the summary’s Close button if it exists
+    const tryAttach = () => {
+      // We support multiple ids/classes to be resilient.
+      const btn =
+        document.getElementById("planSummaryCloseBtn") ||
+        document.getElementById("summaryOkBtn") ||
+        document.querySelector('[data-role="summary-close"]');
+      if (btn) {
+        const once = () => {
+          btn.removeEventListener("click", once);
+          this._renderProgressionDialog(candidates);
+          document.getElementById("progressionDialog")?.showModal();
+        };
+        btn.addEventListener("click", once, { once: true });
+        return true;
+      }
+      return false;
+    };
+    if (!tryAttach()) {
+      // Fallback: show shortly after summary opens (separate dialog, per your UX)
+      window.setTimeout(() => {
+        this._renderProgressionDialog(candidates);
+        document.getElementById("progressionDialog")?.showModal();
+      }, 600);
+    }
+  };
+
+  // ---- Wire dialog buttons once at startup ----
+  const _origInit = App.init;
+  App.init = function initPatched(...args) {
+    const res = _origInit ? _origInit.apply(this, args) : undefined;
+    // Button handlers
+    const dlg = document.getElementById("progressionDialog");
+    const form = document.getElementById("progressionForm");
+    const btnSkip = document.getElementById("progressionSkipBtn");
+    if (btnSkip && dlg) {
+      btnSkip.addEventListener("click", () => dlg.close());
+    }
+    if (form && dlg) {
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        try {
+          await this._applyProgressionFromDialog();
+          dlg.close();
+        } catch (e) {
+          alert("Could not apply progression. See console/log for details.");
+        }
+      });
+    }
+    return res;
+  };
+})();
+
+
+
   /* =========================
      PLAN — PERSISTENCE
      ========================= */

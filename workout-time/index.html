@@ -3395,6 +3395,31 @@
             </div>
         </div>
 
+<!-- PROGRESSION: post-summary progression dialog -->
+  <dialog id="progressionDialog" aria-labelledby="progressionDialogTitle">
+    <form method="dialog" id="progressionForm">
+      <h3 id="progressionDialogTitle">Progression suggestions</h3>
+      <p>Based on today’s results, you can increase the per‑cable load for the qualifying exercises.</p>
+
+      <div id="progressionEligibleContainer" style="margin:0 0 1rem 0;">
+        <h4 style="margin:0 0 .5rem 0;">Eligible</h4>
+        <div id="progressionEligibleList"></div>
+      </div>
+
+      <details id="progressionIneligibleContainer" style="margin:0 0 1rem 0;">
+        <summary>Not eligible this time</summary>
+        <div id="progressionIneligibleList" style="margin-top:.5rem;"></div>
+      </details>
+
+      <menu style="display:flex; gap:.5rem; justify-content:flex-end;">
+        <button type="button" id="progressionSkipBtn">Skip for now</button>
+        <button type="submit" id="progressionApplyBtn">Apply</button>
+      </menu>
+    </form>
+  </dialog>
+
+
+
         <!-- Dropbox SDK -->
         <script src="https://unpkg.com/dropbox@10.34.0/dist/Dropbox-sdk.min.js"></script>
 

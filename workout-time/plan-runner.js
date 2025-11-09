@@ -104,14 +104,18 @@
         "info",
       );
 
-      this._activePlanEntry = {
-        itemIndex: entry.itemIndex,
-        set: entry.set,
-        totalSets,
-        restSec: Math.max(0, Number(entry?.restSecOverride ?? item.restSec) || 0),
-        type: item.type || "exercise",
-        name: item.name || ""
-      };
+    // PROGRESSION: carry microset metadata to summary/finalization
+    this._activePlanEntry = {
+      itemIndex: entry.itemIndex,
+      set: entry.set,
+      totalSets,
+      restSec: Math.max(0, Number(entry?.restSecOverride ?? item.restSec) || 0),
+      type: item.type || "exercise",
+      name: item.name || "",
+      microIndex: (typeof entry.microIndex === "number" ? entry.microIndex : null),
+      intensity: (item.intensity || "none")
+    };
+
       this._planSetInProgress = true;
 
       this.updatePlanSetIndicator?.();
@@ -699,14 +703,18 @@
       }
 
       if (!silent) {
-        if (summary && Array.isArray(summary.sets) && summary.sets.length) {
-          this.presentPlanSummary?.(summary);
-        } else {
-          this.hidePlanSummary?.();
-        }
+      if (summary && Array.isArray(summary.sets) && summary.sets.length) {
+        this.presentPlanSummary?.(summary);
+        // PROGRESSION: queue the post‑summary progression prompt
+        // We let the summary render first; then we attach to its close button (if present),
+        // otherwise we fall back to a short delay.
+        this._scheduleProgressionPrompt?.(summary);
       } else {
         this.hidePlanSummary?.();
       }
+    } else {
+      this.hidePlanSummary?.();
+    }
     },
 
     buildPlanTimeline: function buildPlanTimeline(items = this.planItems) {

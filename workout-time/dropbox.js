@@ -446,6 +446,19 @@ class DropboxManager {
     return true;
   }
 
+// PROGRESSION: convenience wrapper (safe if offline)
+  async savePlanIfConnected(name, planItems) {
+    if (!this.isConnected) return false;
+    try {
+      await this.savePlan(name, planItems);
+      return true;
+    } catch (e) {
+      this.log(`savePlanIfConnected failed: ${e.message}`, "error");
+      return false;
+    }
+  }
+
+
   async deletePlan(name) {
     if (!this.isConnected) {
       throw new Error("Not connected to Dropbox");
