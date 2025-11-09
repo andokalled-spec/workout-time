@@ -1,3 +1,216 @@
+
+// === Phase Timing Controller (5.0s per phase; cable-aware) ===
+// Reuses updateAutoStopUI() "danger zone" ring as a countdown (0→1 over 5s).
+// Pauses are excluded. Skips warmups. Applies only in Just Lift modes.
+class PhaseTimingController {
+  constructor(opts = {}) {
+    this.msLimit = 5000;
+    this.updateAutoStopUI = typeof opts.updateAutoStopUI === "function" ? opts.updateAutoStopUI : null;
+    this.playCountdownBeep = typeof opts.playCountdownBeep === "function" ? opts.playCountdownBeep : null;
+    this.onTimeout = typeof opts.onTimeout === "function" ? opts.onTimeout : null;
+    this.log = typeof opts.log === "function" ? opts.log : (msg, type="info") => console.debug("[phase-timer]", msg, type);
+    this._now = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+
+    this.cables = 1;
+    this.justLift = false;
+    this.echoJustLift = false;
+    this.isWarmup = false;
+    this.enabled = false;
+
+    this._armingOrigin = null;   // "top" | "bottom"
+    this._currentPhase = null;   // "eccentric" | "concentric"
+    this._phaseStartMs = null;
+    this._pauseAccumMs = 0;
+    this._paused = false;
+    this._pauseStartMs = null;
+    this._lastBeepSec = null;
+    this._skipWarmupLogged = false;
+
+    this._destReachedA = false;
+    this._destReachedB = false;
+
+    this._prevEnds = { atTopA: false, atTopB: false, atBottomA: false, atBottomB: false };
+    if (this.updateAutoStopUI) this.updateAutoStopUI(0);
+  }
+
+  setConfig(cfg = {}) {
+    if (typeof cfg.cables !== "undefined") this.cables = Number(cfg.cables) || 1;
+    if (typeof cfg.justLift !== "undefined") this.justLift = !!cfg.justLift;
+    if (typeof cfg.echoJustLift !== "undefined") this.echoJustLift = !!cfg.echoJustLift;
+    if (typeof cfg.isWarmup !== "undefined") this.isWarmup = !!cfg.isWarmup;
+    this.enabled = (this.justLift || this.echoJustLift) && !this.isWarmup;
+    if (this.isWarmup && !this._skipWarmupLogged) {
+      this.log("Skipping warmup rep timeout enforcement", "info");
+      this._skipWarmupLogged = true;
+    }
+  }
+
+  setPaused(paused, now = this._now()) {
+    if (paused && !this._paused) {
+      this._paused = true;
+      this._pauseStartMs = now;
+    } else if (!paused && this._paused) {
+      this._paused = false;
+      if (this._phaseStartMs && this._pauseStartMs != null) {
+        this._pauseAccumMs += Math.max(0, now - this._pauseStartMs);
+      }
+      this._pauseStartMs = null;
+    }
+  }
+
+  onTopReached() {
+    this._armingOrigin = "top";
+    if (this._currentPhase && this._currentPhase !== "eccentric") this._resetPhaseState();
+  }
+
+  onBottomReached() {
+    this._armingOrigin = "bottom";
+    if (this._currentPhase && this._currentPhase !== "concentric") this._resetPhaseState();
+  }
+
+  onDepartFromTop() {
+    if (this._armingOrigin === "top" && !this._phaseStartMs) {
+      this._startPhase("eccentric");
+    }
+  }
+
+  onDepartFromBottom() {
+    if (this._armingOrigin === "bottom" && !this._phaseStartMs) {
+      this._startPhase("concentric");
+    }
+  }
+
+  positionsAtEnds(ends = {}) {
+    const prev = this._prevEnds;
+    const cur = this._prevEnds = {
+      atTopA: !!ends.atTopA,
+      atTopB: !!ends.atTopB,
+      atBottomA: !!ends.atBottomA,
+      atBottomB: !!ends.atBottomB,
+    };
+
+    if (this._armingOrigin === "top") {
+      const departedA = prev.atTopA && !cur.atTopA;
+      const departedB = prev.atTopB && !cur.atTopB;
+      if (departedA || departedB) this.onDepartFromTop();
+
+      this._destReachedA = !!cur.atBottomA;
+      this._destReachedB = !!cur.atBottomB;
+    } else if (this._armingOrigin === "bottom") {
+      const departedA = prev.atBottomA && !cur.atBottomA;
+      const departedB = prev.atBottomB && !cur.atBottomB;
+      if (departedA || departedB) this.onDepartFromBottom();
+
+      this._destReachedA = !!cur.atTopA;
+      this._destReachedB = !!cur.atTopB;
+    }
+  }
+
+  tick(now = this._now()) {
+    if (!this.enabled) {
+      if (this.updateAutoStopUI) this.updateAutoStopUI(0);
+      return;
+    }
+    if (!this._phaseStartMs) return;
+
+    const elapsed = Math.max(0, now - this._phaseStartMs - this._pauseAccumMs);
+    const progress = Math.min(elapsed / this.msLimit, 1.0);
+
+    if (this.updateAutoStopUI) this.updateAutoStopUI(progress);
+
+    if (this.playCountdownBeep) {
+      const secLeft = Math.ceil((this.msLimit - elapsed) / 1000);
+      if (secLeft <= 3 && secLeft > 0 && secLeft !== this._lastBeepSec) {
+        this.playCountdownBeep(secLeft);
+        this._lastBeepSec = secLeft;
+      }
+    }
+
+    if (this._isPhaseComplete()) {
+      const lbl = this._phaseLabel();
+      const s = (elapsed / 1000).toFixed(2);
+      this.log(`Phase complete (${lbl}) in ${s}s`, "info");
+      this._resetPhaseState(true);
+      if (this.updateAutoStopUI) this.updateAutoStopUI(0);
+      return;
+    }
+
+    if (elapsed >= this.msLimit) {
+      this._triggerTimeout();
+    }
+  }
+
+  _startPhase(kind) {
+    if (this.isWarmup) {
+      if (!this._skipWarmupLogged) {
+        this.log("Skipping warmup rep timeout enforcement", "info");
+        this._skipWarmupLogged = true;
+      }
+      return;
+    }
+    if (!(this.justLift || this.echoJustLift)) return;
+    this._currentPhase = kind;
+    this._phaseStartMs = this._now();
+    this._pauseAccumMs = 0;
+    this._paused = false;
+    this._pauseStartMs = null;
+    this._lastBeepSec = null;
+    this._destReachedA = false;
+    this._destReachedB = false;
+    const lbl = this._phaseLabel();
+    this.log(`Phase started: ${lbl} timer running (5.0s)`, "info");
+  }
+
+  _phaseLabel() {
+    if (this._currentPhase === "eccentric") return "top→bottom (eccentric)";
+    if (this._currentPhase === "concentric") return "bottom→top (concentric)";
+    return "(none)";
+  }
+
+  _isPhaseComplete() {
+    if (!this._currentPhase) return false;
+    if (this.cables === 1) return this._destReachedA || this._destReachedB;
+    return this._destReachedA && this._destReachedB;
+  }
+
+  _triggerTimeout() {
+    const lbl = this._phaseLabel();
+    let cableMsg = "";
+    if (this.cables === 2) {
+      if (!this._destReachedA && !this._destReachedB) cableMsg = "; timeout before both cables";
+      else if (!this._destReachedA) cableMsg = "; timeout on cable A";
+      else if (!this._destReachedB) cableMsg = "; timeout on cable B";
+    }
+    this.log(`Phase timeout triggered after 5.0s (${lbl}) → advancing set${cableMsg}`, "warning");
+    if (this.updateAutoStopUI) this.updateAutoStopUI(0);
+    this._resetPhaseState();
+    try {
+      this.onTimeout && this.onTimeout({ reason: "timeout", phase: lbl });
+    } catch (e) {
+      this.log("onTimeout handler threw: " + (e && e.message ? e.message : String(e)), "error");
+    }
+  }
+
+  _resetPhaseState(keepArming = false) {
+    this._currentPhase = null;
+    this._phaseStartMs = null;
+    this._pauseAccumMs = 0;
+    this._paused = false;
+    this._pauseStartMs = null;
+    this._lastBeepSec = null;
+    this._destReachedA = false;
+    this._destReachedB = false;
+    if (!keepArming) this._armingOrigin = null;
+  }
+
+  resetAll() {
+    this._resetPhaseState(false);
+    this._skipWarmupLogged = false;
+    if (this.updateAutoStopUI) this.updateAutoStopUI(0);
+  }
+}
+// === End Phase Timing Controller ===
+
 // app.js - Main application logic and UI management
 
 const sharedWeights = window.WeightUtils || {};
@@ -102,6 +315,32 @@ class VitruvianApp {
     this.currentSample = null; // Latest monitor sample
     this.autoStopStartTime = null; // When we entered the auto-stop danger zone
     this.isJustLiftMode = false; // Flag for Just Lift mode with auto-stop
+
+    // Phase timing controller (5.0s per phase)
+    try {
+      this.phaseTimer = new PhaseTimingController({
+        updateAutoStopUI: (progress) => {
+          try { this.updateAutoStopUI(progress); } catch (e) {}
+        },
+        playCountdownBeep: (secLeft) => {
+          try { this.playCountdownBeep(secLeft); } catch (e) {}
+        },
+        onTimeout: ({ reason, phase }) => {
+          // Use the same routine as natural completion; it will trigger planOnWorkoutComplete & rest
+          try {
+            this.completeWorkout?.({ reason: "timeout" });
+          } catch (e) { /* no-op */ }
+        },
+        log: (msg, type = "info") => {
+          try { this.addLogEntry(msg, type); } catch (e) { /* no-op */ }
+        },
+      });
+      // Spec: expose simple state mirrors (optional, for analytics/debug)
+      this.phaseStartTime = null;
+      this.currentPhase = null;
+    } catch (e) {
+      console.debug("[phase-timer] init failed:", e && e.message ? e.message : e);
+    }
     this.lastTopCounter = undefined; // Track u16[1] for top detection
     this.defaultPerCableKg = DEFAULT_PER_CABLE_KG;
     this._weightInputKg = DEFAULT_PER_CABLE_KG;
@@ -2739,6 +2978,33 @@ class VitruvianApp {
     this.updateStopButtonState();
   }
 
+  // Phase timing: sync config from current plan/workout/UI
+  syncPhaseTimerConfig() {
+    try {
+      if (!this.phaseTimer) return;
+      const entry = this._activePlanEntry || this.currentWorkout || {};
+      const cables = Number(entry.cables) || 2; // default to 2 if unknown
+      let echoJustLift = false;
+      try {
+        const echoJustLiftCheckbox = document.getElementById("echoJustLiftCheckbox");
+        echoJustLift = !!(echoJustLiftCheckbox && echoJustLiftCheckbox.checked);
+      } catch (e) { /* ignore */ }
+      const isWarmup = Number.isFinite(this.warmupTarget) && Number.isFinite(this.warmupReps)
+        ? this.warmupReps < this.warmupTarget
+        : false;
+      this.phaseTimer.setConfig({
+        cables,
+        justLift: this.isJustLiftMode === true,
+        echoJustLift,
+        isWarmup,
+      });
+    } catch (e) {
+      /* no-op */
+    }
+  }
+
+
+
   updateLiveStats(sample) {
     // Store current sample for auto-stop checking
     this.currentSample = sample;
@@ -2807,6 +3073,26 @@ class VitruvianApp {
     if (this.isJustLiftMode) {
       this.checkAutoStop(sample);
     }
+    // Phase timing (5s per phase): feed endpoints & tick
+    try {
+      this.syncPhaseTimerConfig();
+      const rangeA = (Number.isFinite(this.maxRepPosA) && Number.isFinite(this.minRepPosA)) ? (this.maxRepPosA - this.minRepPosA) : 0;
+      const rangeB = (Number.isFinite(this.maxRepPosB) && Number.isFinite(this.minRepPosB)) ? (this.maxRepPosB - this.minRepPosB) : 0;
+      const marginA = rangeA * 0.05;
+      const marginB = rangeB * 0.05;
+      const posA = Number(sample.posA);
+      const posB = Number(sample.posB);
+      const atBottomA = rangeA > 0 && Number.isFinite(posA) && posA <= (this.minRepPosA + marginA);
+      const atTopA    = rangeA > 0 && Number.isFinite(posA) && posA >= (this.maxRepPosA - marginA);
+      const atBottomB = rangeB > 0 && Number.isFinite(posB) && posB <= (this.minRepPosB + marginB);
+      const atTopB    = rangeB > 0 && Number.isFinite(posB) && posB >= (this.maxRepPosB - marginB);
+      this.phaseTimer?.positionsAtEnds({ atTopA, atTopB, atBottomA, atBottomB });
+      this.phaseTimer?.tick();
+      // Mirror simple state for analytics/debug per spec §8
+      this.phaseStartTime = this.phaseTimer?._phaseStartMs ?? null;
+      this.currentPhase = this.phaseTimer?._currentPhase ?? null;
+    } catch (e) { /* no-op */ }
+
 
     // Add data to chart
     this.chartManager.addData(displaySample);
@@ -5126,6 +5412,7 @@ class VitruvianApp {
       "echo-auto-stop": "Echo Just Lift auto-stop saved to history",
       "stop-at-top": "Workout stopped at top and saved to history",
       "target-reps": "Workout completed at target reps and saved to history",
+      "timeout": "Phase timeout — advancing to next block",
       skipped: "Workout skipped and advanced to the next block",
       user: "Workout completed and saved to history",
       complete: "Workout completed and saved to history",
@@ -5134,7 +5421,8 @@ class VitruvianApp {
     const summaryLevel =
       reason === "auto-stop" ||
       reason === "echo-auto-stop" ||
-      reason === "skipped"
+      reason === "skipped" ||
+      reason === "timeout"
         ? "info"
         : "success";
     this.addLogEntry(summaryMessage, summaryLevel);
@@ -5894,6 +6182,8 @@ class VitruvianApp {
     // Track top of range (u16[1])
     if (this.lastTopCounter === undefined) {
       this.lastTopCounter = topCounter;
+        // Phase timing: arm next (eccentric) phase
+        try { this.phaseTimer?.onTopReached(); } catch (e) { /* no-op */ }
     } else {
       // Check if top counter incremented
       let topDelta = 0;
@@ -5963,6 +6253,8 @@ class VitruvianApp {
         this.currentSample.posA,
         this.currentSample.posB,
       );
+      // Phase timing: arm next (concentric) phase
+      try { this.phaseTimer?.onBottomReached(); } catch (e) { /* no-op */ }
 
       const totalReps = this.warmupReps + this.workingReps + 1;
 
@@ -6896,11 +7188,15 @@ class VitruvianApp {
   }
 
   pausePlan() {
-    return window.PlanRunnerPrototype.pausePlan.call(this);
+    const result = window.PlanRunnerPrototype.pausePlan.call(this);
+    try { this.phaseTimer?.setPaused(true); } catch (e) {}
+    return result;
   }
 
   resumePlan(options = {}) {
-    return window.PlanRunnerPrototype.resumePlan.call(this, options);
+    const result = window.PlanRunnerPrototype.resumePlan.call(this, options);
+    try { this.phaseTimer?.setPaused(false); } catch (e) {}
+    return result;
   }
 
   async skipPlanForward() {
