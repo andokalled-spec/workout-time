@@ -2544,7 +2544,7 @@
                 }
 
                 .weight-adjuster-circle {
-                    max-width: 200px;
+                    max-width: 100px;
                 }
 
                 .weight-adjuster-actions {
@@ -2651,7 +2651,7 @@
                 }
 
                 .weight-adjuster-circle {
-                    max-width: 180px;
+                    max-width: 100px;
                 }
 
                 .weight-adjuster-segment {
@@ -2755,7 +2755,81 @@
             .overlay.show {
                 display: block;
             }
-        </style>
+        
+/* MOBILE PORTRAIT — Warmup + Working side by side */
+@media (max-width: 768px) and (orientation: portrait) {
+    .stat-card-pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        width: 100%;
+    }
+    .stat-card-pair .stat-card {
+        width: 100%;
+    }
+}
+
+
+@media (max-width: 768px) and (orientation: portrait) {
+    /* Center blue circle and controls between LHS and RHS columns */
+    .position-bars {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        justify-items: center;
+        height: auto;
+        padding: 16px;
+        gap: 8px;
+        margin: 24px 0 16px;
+    }
+    .position-bars > .bar-container:first-child {
+        justify-self: start;
+    }
+    .position-bars > .bar-container:last-child {
+        justify-self: end;
+    }
+    .position-bars__center {
+        grid-column: 2;
+        order: 0;
+        flex: 0 0 auto;
+        width: 100%;
+        align-items: center;
+        justify-content: center;
+    }
+    .plan-inline-controls {
+        justify-content: center;
+    }
+    .weight-adjuster-stack {
+        margin-inline: auto;
+    }
+}
+
+
+/* MOBILE PORTRAIT — Left + Right cable load side-by-side */
+@media (max-width: 768px) and (orientation: portrait) {
+
+    /* Force stats grid into two columns */
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    /* Left Cable Load */
+    #loadB {
+        grid-column: span 1;
+    }
+
+    /* Right Cable Load */
+    #loadA {
+        grid-column: span 1;
+    }
+
+    /* Total Load → full width below */
+    #totalLoad {
+        grid-column: span 2;
+    }
+}
+
+</style>
     </head>
     <body>
         <!-- Mobile hamburger menu -->
@@ -3334,34 +3408,36 @@
                         <div id="prBanner" class="pr-banner hidden"></div>
                         <!-- Rep Counters -->
                         <div class="stat-card-grid">
-                            <div class="stat-card stat-card--warmup">
+                            <div class="stat-card-pair">
+<div class="stat-card stat-card--warmup">
                                 <div class="stat-card__label">Warmup Reps</div>
                                 <div class="stat-card__value" id="warmupCounter">-/3</div>
                             </div>
                             <div class="stat-card stat-card--working">
-                                <div class="stat-card__label">Working Reps</div>
-                                <div class="stat-card__value stat-card__value--with-controls">
-                                    <button
-                                        type="button"
-                                        class="working-counter-button working-counter-button--decrease"
-                                        id="workingCounterDecrease"
-                                        aria-label="Decrease target repetitions"
-                                    >
-                                        <span aria-hidden="true">&minus;</span>
-                                    </button>
-                                    <span
-                                        class="working-counter-display"
-                                        id="workingCounter"
-                                    >-/-</span>
-                                    <button
-                                        type="button"
-                                        class="working-counter-button working-counter-button--increase"
-                                        id="workingCounterIncrease"
-                                        aria-label="Increase target repetitions"
-                                    >
-                                        <span aria-hidden="true">+</span>
-                                    </button>
-                                </div>
+    <div class="stat-card__label">Working Reps</div>
+
+    <div class="stat-card__value stat-card__value--with-controls">
+        <button
+            type="button"
+            class="working-counter-button working-counter-button--decrease"
+            id="workingCounterDecrease"
+            aria-label="Decrease target repetitions"
+        >
+            <span aria-hidden="true">&minus;</span>
+        </button>
+
+        <span class="working-counter-display" id="workingCounter">-/-</span>
+
+        <button
+            type="button"
+            class="working-counter-button working-counter-button--increase"
+            id="workingCounterIncrease"
+            aria-label="Increase target repetitions"
+        >
+            <span aria-hidden="true">+</span>
+        </button>
+    </div>
+</div>
                             </div>
                         </div>
 
@@ -3392,17 +3468,7 @@
                             </div>
                                 <div class="position-bars__center">
                                 <div class="plan-inline-controls" role="group" aria-label="Plan navigation">
-                                    <button
-                                        type="button"
-                                        class="plan-nav-btn"
-                                        id="planPrevBtn"
-                                        onclick="app.rewindPlan()"
-                                        aria-label="Previous set"
-                                    >
-                                        <i class="bi bi-skip-backward-fill" aria-hidden="true"></i>
-                                        <span class="sr-only">Previous set</span>
-                                    </button>
-                                    <div class="plan-inline-center">
+                                                                                             <div class="plan-inline-center">
                                         <div class="weight-adjuster-stack">
                                             <div
                                                 class="personal-best-wrapper"
@@ -3537,41 +3603,66 @@
                                                 role="group"
                                                 aria-label="Workout controls"
                                             >
-                                                <div
-                                                    class="weight-adjuster-control-row"
-                                                    id="planControlRow"
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        class="plan-pause-btn"
-                                                        id="planPauseBtn"
-                                                        onclick="app.togglePlanPause()"
-                                                        aria-pressed="false"
-                                                        aria-label="Pause plan"
-                                                    >
-                                                        <i class="bi bi-pause-fill" aria-hidden="true"></i>
-                                                        <span class="sr-only"
-                                                            >Pause plan</span
-                                                        >
-                                                    </button>
-                                                    <div
-                                                        class="rest-countdown-summary"
-                                                        id="restCountdownSummary"
-                                                        aria-live="polite"
-                                                    ></div>
-                                                    <button
-                                                        id="stopBtn"
-                                                        type="button"
-                                                        class="plan-stop-btn"
-                                                        onclick="app.stopWorkout()"
-                                                        aria-label="Stop workout"
-                                                    >
-                                                        <i class="bi bi-stop-fill" aria-hidden="true"></i>
-                                                        <span class="sr-only"
-                                                            >Stop workout</span
-                                                        >
-                                                    </button>
-                                                </div>
+                                               <div
+    class="weight-adjuster-control-row"
+    id="planControlRow"
+>
+    <!-- MOBILE-ONLY PREVIOUS -->
+    <button
+        type="button"
+        class="plan-nav-btn plan-nav-btn-mobile"
+        id="planPrevBtnMobile"
+        onclick="app.rewindPlan()"
+        aria-label="Previous set"
+    >
+        <i class="bi bi-skip-backward-fill" aria-hidden="true"></i>
+        <span class="sr-only">Previous set</span>
+    </button>
+
+    <!-- Pause -->
+    <button
+        type="button"
+        class="plan-pause-btn"
+        id="planPauseBtn"
+        onclick="app.togglePlanPause()"
+        aria-pressed="false"
+        aria-label="Pause plan"
+    >
+        <i class="bi bi-pause-fill" aria-hidden="true"></i>
+        <span class="sr-only">Pause plan</span>
+    </button>
+
+    <div
+        class="rest-countdown-summary"
+        id="restCountdownSummary"
+        aria-live="polite"
+    ></div>
+
+    <!-- Stop -->
+    <button
+        id="stopBtn"
+        type="button"
+        class="plan-stop-btn"
+        onclick="app.stopWorkout()"
+        aria-label="Stop workout"
+    >
+        <i class="bi bi-stop-fill" aria-hidden="true"></i>
+        <span class="sr-only">Stop workout</span>
+    </button>
+
+    <!-- MOBILE-ONLY NEXT -->
+    <button
+        type="button"
+        class="plan-nav-btn plan-nav-btn-mobile"
+        id="planNextBtnMobile"
+        onclick="app.skipPlanForward()"
+        aria-label="Next set"
+    >
+        <i class="bi bi-skip-forward-fill" aria-hidden="true"></i>
+        <span class="sr-only">Next set</span>
+    </button>
+</div>
+
                                                 <div
                                                     id="planElapsedTimer"
                                                     class="plan-elapsed-timer"
@@ -3581,16 +3672,8 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <button
-                                        type="button"
-                                        class="plan-nav-btn"
-                                        id="planNextBtn"
-                                        onclick="app.skipPlanForward()"
-                                        aria-label="Next set"
-                                    >
-                                        <i class="bi bi-skip-forward-fill" aria-hidden="true"></i>
-                                        <span class="sr-only">Next set</span>
-                                    </button>
+                                   
+
                                 </div>
 
                             </div>
