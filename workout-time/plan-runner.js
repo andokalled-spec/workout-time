@@ -457,7 +457,7 @@
         }
       }
 
-      if (summaryEl) {
+            if (summaryEl) {
         if (state.nextHtml) {
           const heading = state.labelText || "Next set";
           summaryEl.innerHTML = `<strong>${heading}</strong><div class="rest-countdown-summary-details">${state.nextHtml}</div>`;
@@ -467,6 +467,24 @@
           summaryEl.textContent = "";
         }
         summaryEl.classList.toggle("is-visible", summaryEl.innerHTML !== "");
+      }
+
+      // NEW: mirror the "next" info into the banner above the cable load boxes
+      const nextSetBanner = document.getElementById("nextSetBanner");
+      if (nextSetBanner) {
+        if (state.nextHtml) {
+          const heading = state.labelText || "Next set";
+          // Example final text:
+          // "Next set — Program • 20 kg/cable × 2 • 10 reps"
+          nextSetBanner.innerHTML = `<strong>${heading}</strong> ${state.nextHtml}`;
+          nextSetBanner.classList.remove("hidden");
+        } else if (state.labelText) {
+          nextSetBanner.textContent = state.labelText;
+          nextSetBanner.classList.remove("hidden");
+        } else {
+          nextSetBanner.textContent = "";
+          nextSetBanner.classList.add("hidden");
+        }
       }
 
       if (controlRow) {
@@ -594,6 +612,11 @@
       if (state.summaryEl) {
         state.summaryEl.classList.remove("is-visible");
         state.summaryEl.innerHTML = "";
+      }
+      const nextSetBanner = document.getElementById("nextSetBanner");
+      if (nextSetBanner) {
+        nextSetBanner.textContent = "";
+        nextSetBanner.classList.add("hidden");
       }
       if (state.hintEl) {
         state.hintEl.textContent = "Tap anywhere to add +30s";
