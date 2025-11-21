@@ -758,14 +758,14 @@
         const repsText = unlimited
           ? "Unlimited reps"
           : `${Math.max(0, reps)} reps`;
-        return `${modeName} • ${perCable} ${unit}/cable × ${cables} • ${repsText}`;
+   // TEST     return `${modeName} • ${perCable} ${unit}/cable × ${cables} • ${repsText}`;
       }
       const levelName = EchoLevelNames?.[item.level] || "Echo";
       const eccentric = Number.isFinite(item.eccentricPct) ? item.eccentricPct : 100;
       const target = Number(item.targetReps);
       const unlimited = Boolean(item.justLift) || !Number.isFinite(target) || target <= 0;
       const repsText = unlimited ? "Unlimited reps" : `target ${Math.max(0, target)} reps`;
-      return `${levelName} • ecc ${eccentric}% • ${repsText}`;
+   // TEST   return `${levelName} • ecc ${eccentric}% • ${repsText}`;
     },
 
     formatDuration: function formatDuration(ms) {
