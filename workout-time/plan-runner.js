@@ -457,17 +457,6 @@
         }
       }
 
-//            if (summaryEl) {
-//TEST       if (state.nextHtml) {
-//          const heading = state.labelText || "Next set";
-//          summaryEl.innerHTML = `<strong>${heading}</strong><div class="rest-countdown-summary-details">${state.nextHtml}</div>`;
-//        } else if (state.labelText) {
-//          summaryEl.innerHTML = `<strong>${state.labelText}</strong>`;
- //       } else {
-//          summaryEl.textContent = "";
-//        }
-//        summaryEl.classList.toggle("is-visible", summaryEl.innerHTML !== "");
-//TEST      }
 
       // NEW: mirror the "next" info into the banner above the cable load boxes
       const nextSetBanner = document.getElementById("nextSetBanner");
