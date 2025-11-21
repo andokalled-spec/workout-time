@@ -457,17 +457,17 @@
         }
       }
 
-            if (summaryEl) {
-        if (state.nextHtml) {
-          const heading = state.labelText || "Next set";
-          summaryEl.innerHTML = `<strong>${heading}</strong><div class="rest-countdown-summary-details">${state.nextHtml}</div>`;
-        } else if (state.labelText) {
-          summaryEl.innerHTML = `<strong>${state.labelText}</strong>`;
-        } else {
-          summaryEl.textContent = "";
-        }
-        summaryEl.classList.toggle("is-visible", summaryEl.innerHTML !== "");
-      }
+//            if (summaryEl) {
+//TEST       if (state.nextHtml) {
+//          const heading = state.labelText || "Next set";
+//          summaryEl.innerHTML = `<strong>${heading}</strong><div class="rest-countdown-summary-details">${state.nextHtml}</div>`;
+//        } else if (state.labelText) {
+//          summaryEl.innerHTML = `<strong>${state.labelText}</strong>`;
+ //       } else {
+//          summaryEl.textContent = "";
+//        }
+//        summaryEl.classList.toggle("is-visible", summaryEl.innerHTML !== "");
+//TEST      }
 
       // NEW: mirror the "next" info into the banner above the cable load boxes
       const nextSetBanner = document.getElementById("nextSetBanner");
@@ -758,14 +758,14 @@
         const repsText = unlimited
           ? "Unlimited reps"
           : `${Math.max(0, reps)} reps`;
-   // TEST     return `${modeName} • ${perCable} ${unit}/cable × ${cables} • ${repsText}`;
+       return `${modeName} • ${perCable} ${unit}/cable × ${cables} • ${repsText}`;
       }
       const levelName = EchoLevelNames?.[item.level] || "Echo";
       const eccentric = Number.isFinite(item.eccentricPct) ? item.eccentricPct : 100;
       const target = Number(item.targetReps);
       const unlimited = Boolean(item.justLift) || !Number.isFinite(target) || target <= 0;
       const repsText = unlimited ? "Unlimited reps" : `target ${Math.max(0, target)} reps`;
-   // TEST   return `${levelName} • ecc ${eccentric}% • ${repsText}`;
+      return `${levelName} • ecc ${eccentric}% • ${repsText}`;
     },
 
     formatDuration: function formatDuration(ms) {
