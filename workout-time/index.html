@@ -2049,19 +2049,20 @@
                 line-height: 1;
             }
 
-            .plan-elapsed-timer {
-                position: absolute;
-                bottom: 20px;
-                left: 40%;
-                min-width: 76px;
-                padding: 6px 12px;
-                border-radius: 10px;
-                background: var(--tile-background);
-                color: var(--text-primary);
-                font-weight: 600;
-                font-variant-numeric: tabular-nums;
-                text-align: right;
-            }
+.plan-elapsed-timer {
+    position: static;            /* remove absolute positioning */
+    margin-top: 10px;            /* space below the buttons */
+    width: 100%;                 /* lets it center under the controls */
+    text-align: center;          /* center the text */
+    min-width: 76px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: var(--tile-background);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
 
             .plan-elapsed-timer.is-paused {
                 opacity: 0.75;
@@ -3453,7 +3454,7 @@
                         <!-- Position Visualizer -->
                         <div class="position-bars">
                             <div class="bar-container">
-                                <div class="bar-label">Left Cable</div>
+                                <div class="bar-label">LHS Cable</div>
                                 <div class="bar-wrapper" id="barWrapperB">
                                     <div class="bar" id="barB"></div>
                                     <div
@@ -3687,7 +3688,7 @@
 
                             </div>
                             <div class="bar-container">
-                                <div class="bar-label">Right Cable</div>
+                                <div class="bar-label">RHS Cable</div>
                                 <div class="bar-wrapper" id="barWrapperA">
                                     <div class="bar" id="barA"></div>
                                     <div
