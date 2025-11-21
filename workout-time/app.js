@@ -8097,7 +8097,7 @@ class VitruvianApp {
           </div>
 
           <div class="form-group">
-            <label>Progression (${unit} per rep)</label>
+            <label>Progression (${unit}/rep)</label>
             <input type="number"
                    step="${progressionStep}"
                    min="${progressionMin}"
