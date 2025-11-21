@@ -2050,11 +2050,11 @@
             }
 
 .plan-elapsed-timer {
-    position: static;            /* remove absolute positioning */
-    margin-top: 10px;            /* space below the buttons */
-    width: 100%;                 /* lets it center under the controls */
-    text-align: center;          /* center the text */
-    min-width: 76px;
+    position: static;
+    margin: 10px auto 0;          
+    width: fit-content;           
+    min-width: 76px;              
+    text-align: center;
     padding: 6px 12px;
     border-radius: 10px;
     background: var(--tile-background);
@@ -2062,7 +2062,6 @@
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
-
 
             .plan-elapsed-timer.is-paused {
                 opacity: 0.75;
