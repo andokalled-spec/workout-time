@@ -870,7 +870,6 @@ class DropboxManager {
     }
   }
 
-
   // Get connection status
   getConnectionStatus() {
     const token = this.getStoredToken();
