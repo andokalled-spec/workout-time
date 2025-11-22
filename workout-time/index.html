@@ -302,25 +302,16 @@
                 text-align: center;
             }
 
-  //          .current-set-name {
- //               margin-bottom: 6px;
- //               font-weight: 600;
- //               color: var(--text-secondary);
- //               min-height: 1em;
-//            }
-
-		.current-set-name {
+           .current-set-name {
 	  	    text-align: center;
 		    font-weight: 600;
 		    color: var(--text-secondary);
 		    font-size: 1.2em;
 		}
 
-
-
             .stat-card-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(0, 2fr));
                 gap: 15px;
                 margin-bottom: 20px;
             }
@@ -1034,6 +1025,22 @@
                 font-size: 0.9em;
             }
 
+            .label-with-hint {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .label-with-hint .bi {
+                font-size: 0.95em;
+                color: var(--text-secondary);
+                cursor: help;
+            }
+
+            .label-with-hint .bi:hover {
+                color: var(--accent-color);
+            }
+
             select,
             input {
                 width: 100%;
@@ -1108,6 +1115,7 @@
                 display: none;
                 align-items: center;
                 justify-content: space-between;
+                flex-wrap: wrap;
                 gap: 12px;
                 margin-bottom: 12px;
             }
@@ -1123,6 +1131,31 @@
                 text-align: center;
                 font-size: 0.9em;
                 color: var(--text-muted);
+            }
+
+            .history-pagination__center {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .history-filter {
+                display: block;
+            }
+
+            .history-filter__select {
+                width: 100%;
+                padding: 8px 10px;
+                border-radius: 10px;
+                border: 1px solid var(--divider-color);
+                background: var(--input-bg);
+                color: var(--input-text);
+            }
+
+            .history-filter__select:focus-visible {
+                outline: 2px solid var(--accent-color);
+                outline-offset: 2px;
             }
 
             .theme-toggle-btn {
@@ -1325,16 +1358,11 @@
             .weight-adjuster-segment.increase {
                 top: 0;
                 border-radius: 999px 999px 0 0;
-		align-items: flex-start;   /* move content up */
-    		padding-top: 8px;          /* tweak distance from top */
             }
 
             .weight-adjuster-segment.decrease {
                 bottom: 0;
                 border-radius: 0 0 999px 999px;
-		align-items: flex-end;     /* move content down */
-    		padding-bottom: 8px;       /* tweak distance from bottom */
-
             }
 
             .weight-adjuster-value {
@@ -2055,19 +2083,19 @@
                 line-height: 1;
             }
 
-.plan-elapsed-timer {
-    position: static;
-    margin: 10px auto 0;          
-    width: fit-content;           
-    min-width: 76px;              
-    text-align: center;
-    padding: 6px 12px;
-    border-radius: 10px;
-    background: var(--tile-background);
-    color: var(--text-primary);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-}
+            .plan-elapsed-timer {
+		    position: static;
+		    margin: 10px auto 0;          
+		    width: fit-content;           
+		    min-width: 76px;              
+		    text-align: center;
+		    padding: 6px 12px;
+		    border-radius: 10px;
+		    background: var(--tile-background);
+		    color: var(--text-primary);
+		    font-weight: 600;
+		    font-variant-numeric: tabular-nums;
+            }
 
             .plan-elapsed-timer.is-paused {
                 opacity: 0.75;
@@ -2513,8 +2541,8 @@
                 }
 
                 .stat-card-grid {
-                    grid-template-columns: 1fr;
-                }
+        grid-template-columns: repeat(2, minmax(0, 2fr));
+    }
 
                 .position-bars {
                     flex-direction: row;
@@ -2587,6 +2615,7 @@
                     flex: 1 1 calc(50% - 8px);
                     min-width: 130px;
                 }
+
 
 
                 .plan-card__actions {
@@ -2767,7 +2796,7 @@
             .overlay.show {
                 display: block;
             }
-        
+
 /* MOBILE PORTRAIT — Warmup + Working side by side */
 @media (max-width: 768px) and (orientation: portrait) {
     .stat-card-pair {
@@ -2841,7 +2870,8 @@
     }
 }
 
-</style>
+
+        </style>
     </head>
     <body>
         <!-- Mobile hamburger menu -->
@@ -3420,43 +3450,41 @@
                         <div id="prBanner" class="pr-banner hidden"></div>
                         <!-- Rep Counters -->
                         <div class="stat-card-grid">
-                            <div class="stat-card-pair">
-<div class="stat-card stat-card--warmup">
+                            <div class="stat-card stat-card--warmup">
                                 <div class="stat-card__label">Warmup Reps</div>
                                 <div class="stat-card__value" id="warmupCounter">-/3</div>
                             </div>
                             <div class="stat-card stat-card--working">
-    <div class="stat-card__label">Working Reps</div>
-
-    <div class="stat-card__value stat-card__value--with-controls">
-        <button
-            type="button"
-            class="working-counter-button working-counter-button--decrease"
-            id="workingCounterDecrease"
-            aria-label="Decrease target repetitions"
-        >
-            <span aria-hidden="true">&minus;</span>
-        </button>
-
-        <span class="working-counter-display" id="workingCounter">-/-</span>
-
-        <button
-            type="button"
-            class="working-counter-button working-counter-button--increase"
-            id="workingCounterIncrease"
-            aria-label="Increase target repetitions"
-        >
-            <span aria-hidden="true">+</span>
-        </button>
-    </div>
-</div>
+                                <div class="stat-card__label">Working Reps</div>
+                                <div class="stat-card__value stat-card__value--with-controls">
+                                    <button
+                                        type="button"
+                                        class="working-counter-button working-counter-button--decrease"
+                                        id="workingCounterDecrease"
+                                        aria-label="Decrease target repetitions"
+                                    >
+                                        <span aria-hidden="true">&minus;</span>
+                                    </button>
+                                    <span
+                                        class="working-counter-display"
+                                        id="workingCounter"
+                                    >-/-</span>
+                                    <button
+                                        type="button"
+                                        class="working-counter-button working-counter-button--increase"
+                                        id="workingCounterIncrease"
+                                        aria-label="Increase target repetitions"
+                                    >
+                                        <span aria-hidden="true">+</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         <!-- Position Visualizer -->
                         <div class="position-bars">
                             <div class="bar-container">
-                                <div class="bar-label">LHS Cable</div>
+                                <div class="bar-label">Left Cable</div>
                                 <div class="bar-wrapper" id="barWrapperB">
                                     <div class="bar" id="barB"></div>
                                     <div
@@ -3480,7 +3508,8 @@
                             </div>
                                 <div class="position-bars__center">
                                 <div class="plan-inline-controls" role="group" aria-label="Plan navigation">
-                                                                                             <div class="plan-inline-center">
+                                    
+                                    <div class="plan-inline-center">
                                         <div class="weight-adjuster-stack">
                                             <div
                                                 class="personal-best-wrapper"
@@ -3615,11 +3644,11 @@
                                                 role="group"
                                                 aria-label="Workout controls"
                                             >
-                                               <div
-    class="weight-adjuster-control-row"
-    id="planControlRow"
->
-    <!-- MOBILE-ONLY PREVIOUS -->
+                                                <div
+                                                    class="weight-adjuster-control-row"
+                                                    id="planControlRow"
+                                                >
+                                                        <!-- MOBILE-ONLY PREVIOUS -->
     <button
         type="button"
         class="plan-nav-btn plan-nav-btn-mobile"
@@ -3685,12 +3714,11 @@
                                         </div>
                                     </div>
                                    
-
                                 </div>
 
                             </div>
                             <div class="bar-container">
-                                <div class="bar-label">RHS Cable</div>
+                                <div class="bar-label">Right Cable</div>
                                 <div class="bar-wrapper" id="barWrapperA">
                                     <div class="bar" id="barA"></div>
                                     <div

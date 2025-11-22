@@ -27,6 +27,7 @@ import {
   setScheduleEnd,
   setScheduleInterval,
   toggleScheduleDay,
+  applyScheduleFromDate,
   buildPlanSyncPayload,
   handleScrollButtons,
   handleBuilderDragOver,
@@ -82,6 +83,13 @@ const analyticsDashboard =
     : null;
 
 const planCache = new Map(); // name -> { source, items }
+const PLAN_NAME_DATE_PATTERN = /^(\d{4}-\d{2}-\d{2})\b/;
+
+const extractPlanDateFromName = (name) => {
+  if (typeof name !== 'string') return null;
+  const match = PLAN_NAME_DATE_PATTERN.exec(name.trim());
+  return match ? match[1] : null;
+};
 
 registerCustomExerciseListeners({
   onCatalogueUpdated: () => {
@@ -333,6 +341,12 @@ const loadPlanByName = async (name) => {
   setPlanName(trimmed, { fromSelection: true });
   flushPlanNameDebounce();
   loadPlanIntoBuilder(Array.isArray(entry.items) ? entry.items : []);
+  if (entry.source === 'dropbox') {
+    const isoDate = extractPlanDateFromName(trimmed);
+    if (isoDate) {
+      applyScheduleFromDate(isoDate);
+    }
+  }
   renderSchedulePreview();
   updateSyncStatus(`Loaded plan "${trimmed}" into Workout Builder.`, 'success');
 };
@@ -619,14 +633,17 @@ function bindGlobalEvents() {
     });
   }
 
-  if (els.unitToggle) {
-    els.unitToggle.addEventListener('click', () => {
+  const bindUnitToggle = (button) => {
+    if (!button) return;
+    button.addEventListener('click', () => {
       toggleWeightUnit();
       if (analyticsDashboard) {
         analyticsDashboard.handleUnitChange();
       }
     });
-  }
+  };
+  bindUnitToggle(els.unitToggle);
+  bindUnitToggle(els.analyticsUnitToggle);
 
   els.toggleBuilderFilter.addEventListener('click', () => {
     state.showWorkoutOnly = !state.showWorkoutOnly;

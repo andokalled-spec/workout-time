@@ -76,6 +76,7 @@ const WORKOUT_TAB_COLOR = { rgb: "FF2E75B6" };
 const PR_TAB_COLOR = { rgb: "FFF1C232" };
 const PLAN_SUMMARY_FLAT_AMOUNTS = [0.5, 1, 1.5, 2, 2.5, 5];
 const PLAN_SUMMARY_PERCENT_AMOUNTS = [0.5, 1, 1.5, 2, 2.5, 5];
+const FILTERED_HISTORY_PAGE_SIZE = 20;
 
 const escapeHtml = (value) => {
   const str = value === null || value === undefined ? '' : String(value);
@@ -204,6 +205,7 @@ class VitruvianApp {
 
     this.historyPage = 1;
     this.historyPageSize = 5;
+    this.historyFilterKey = "all";
     this._loadedPlanName = null;
     this._preferredPlanSelection = null;
     this._planNameCollator = null;
@@ -5823,8 +5825,13 @@ class VitruvianApp {
     const previousKey = this.selectedHistoryKey;
     const newKey = this.getWorkoutHistoryKey(workout);
 
-    const pageSize = Number(this.historyPageSize) > 0 ? this.historyPageSize : 5;
-    this.setHistoryPage(Math.floor(index / pageSize) + 1);
+    const pageSize = this.getHistoryPageSize();
+    const filteredEntries = this.getFilteredHistoryEntries();
+    const filteredIndex = filteredEntries.findIndex((entry) => entry.index === index);
+    const targetPage = filteredIndex >= 0
+      ? Math.floor(filteredIndex / pageSize) + 1
+      : Math.floor(index / pageSize) + 1;
+    this.setHistoryPage(targetPage);
 
     this.selectedHistoryKey = newKey;
     this.selectedHistoryIndex = index;
@@ -6016,12 +6023,104 @@ class VitruvianApp {
     return true;
   }
 
+  isHistoryFilterActive() {
+    return this.getActiveHistoryFilterKey() !== "all";
+  }
+
+  getHistoryPageSize() {
+    const baseSize = Number(this.historyPageSize) > 0 ? this.historyPageSize : 5;
+    return this.isHistoryFilterActive() ? FILTERED_HISTORY_PAGE_SIZE : baseSize;
+  }
+
+  getHistoryFilterOptions(history = this.workoutHistory) {
+    const list = Array.isArray(history) ? history : [];
+    const options = new Map();
+
+    for (const workout of list) {
+      const identity = this.getWorkoutIdentityInfo(workout);
+      if (!identity || !identity.key) {
+        continue;
+      }
+      const existing = options.get(identity.key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        options.set(identity.key, {
+          key: identity.key,
+          label: identity.label || "Unnamed Exercise",
+          count: 1,
+        });
+      }
+    }
+
+    return Array.from(options.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }
+
+  getActiveHistoryFilterKey(history = this.workoutHistory) {
+    const normalized =
+      typeof this.historyFilterKey === "string" && this.historyFilterKey.trim().length > 0
+        ? this.historyFilterKey.trim()
+        : "all";
+
+    if (normalized === "all") {
+      return "all";
+    }
+
+    const options = this.getHistoryFilterOptions(history);
+    const hasOption = options.some((option) => option.key === normalized);
+    if (!hasOption) {
+      this.historyFilterKey = "all";
+      return "all";
+    }
+
+    return normalized;
+  }
+
+  getFilteredHistoryEntries(history = this.workoutHistory) {
+    const list = Array.isArray(history) ? history : [];
+    const activeKey = this.getActiveHistoryFilterKey(list);
+
+    if (activeKey === "all") {
+      return list.map((workout, index) => ({ workout, index }));
+    }
+
+    return list
+      .map((workout, index) => ({ workout, index }))
+      .filter(({ workout }) => {
+        const identity = this.getWorkoutIdentityInfo(workout);
+        return identity && identity.key === activeKey;
+      });
+  }
+
+  setHistoryFilter(key) {
+    const normalized =
+      typeof key === "string" && key.trim().length > 0 ? key.trim() : "all";
+    const options = this.getHistoryFilterOptions();
+    const isValid = options.some((option) => option.key === normalized);
+    const targetKey = normalized === "all" || !isValid ? "all" : normalized;
+
+    if (targetKey === this.historyFilterKey) {
+      return;
+    }
+
+    this.historyFilterKey = targetKey;
+    this.historyPage = 1;
+    this.selectedHistoryKey = null;
+    this.selectedHistoryIndex = null;
+    this.updateHistoryDisplay();
+  }
+
   updateHistoryDisplay() {
     const historyList = document.getElementById("historyList");
     if (!historyList) return;
 
-    const totalItems = Array.isArray(this.workoutHistory) ? this.workoutHistory.length : 0;
-    const pageSize = Number(this.historyPageSize) > 0 ? this.historyPageSize : 5;
+    const history = Array.isArray(this.workoutHistory) ? this.workoutHistory : [];
+    const filterOptions = this.getHistoryFilterOptions(history);
+    const filteredEntries = this.getFilteredHistoryEntries(history);
+    const pageSize = this.getHistoryPageSize();
+    const totalItems = filteredEntries.length;
     const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
 
     if (totalItems === 0) {
@@ -6033,7 +6132,11 @@ class VitruvianApp {
       `;
       this.selectedHistoryKey = null;
       this.selectedHistoryIndex = null;
-      this.updateHistoryPaginationControls(0);
+      this.updateHistoryPaginationControls({
+        totalPages: 0,
+        filterOptions,
+        totalHistoryCount: history.length,
+      });
       this.updateExportButtonLabel();
       return;
     }
@@ -6048,13 +6151,12 @@ class VitruvianApp {
 
     const startIndex = (this.historyPage - 1) * pageSize;
     const endIndex = Math.min(startIndex + pageSize, totalItems);
-    const pageItems = this.workoutHistory.slice(startIndex, endIndex);
+    const pageItems = filteredEntries.slice(startIndex, endIndex);
 
     let matchedSelection = false;
 
     historyList.innerHTML = pageItems
-      .map((workout, offset) => {
-        const index = startIndex + offset;
+      .map(({ workout, index }) => {
         const weightStr =
           workout.weightKg > 0
             ? `${this.formatWeightWithUnit(workout.weightKg)}`
@@ -6116,39 +6218,73 @@ class VitruvianApp {
       this.selectedHistoryIndex = null;
     }
 
-    this.updateHistoryPaginationControls(maxPages);
+    this.updateHistoryPaginationControls({
+      totalPages: maxPages,
+      filterOptions,
+      totalHistoryCount: history.length,
+    });
     this.updateExportButtonLabel();
   }
 
-  updateHistoryPaginationControls(totalPages) {
+  updateHistoryPaginationControls({ totalPages, filterOptions = [], totalHistoryCount = 0 }) {
     const paginationEl = document.getElementById("historyPagination");
     if (!paginationEl) {
       return;
     }
 
-    if (!Number.isFinite(totalPages) || totalPages <= 1) {
+    const hasHistory = Number.isFinite(totalHistoryCount) && totalHistoryCount > 0;
+    if (!hasHistory) {
       paginationEl.style.display = "none";
       paginationEl.innerHTML = "";
       return;
     }
 
-    paginationEl.style.display = "flex";
+    const safePages = Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1;
     const prevDisabledAttrs = this.historyPage <= 1 ? 'disabled aria-disabled="true"' : "";
-    const nextDisabledAttrs = this.historyPage >= totalPages ? 'disabled aria-disabled="true"' : "";
+    const nextDisabledAttrs = this.historyPage >= safePages ? 'disabled aria-disabled="true"' : "";
+    const activeKey = this.getActiveHistoryFilterKey();
+    const allLabel = Number.isFinite(totalHistoryCount)
+      ? `All exercises (${totalHistoryCount})`
+      : "All exercises";
 
+    const filterOptionsHtml = [
+      `<option value="all">${escapeHtml(allLabel)}</option>`,
+      ...filterOptions.map(
+        (option) =>
+          `<option value="${escapeHtml(option.key)}">${escapeHtml(`${option.label} (${option.count})`)}</option>`,
+      ),
+    ].join("");
+
+    paginationEl.style.display = "flex";
     paginationEl.innerHTML = `
       <button type="button" class="history-page-btn secondary" onclick="app.changeHistoryPage(-1)" ${prevDisabledAttrs} aria-label="Previous page">Prev</button>
-      <span class="history-pagination__label">Page ${this.historyPage} of ${totalPages}</span>
+      <div class="history-pagination__center">
+        <label class="history-filter" for="historyExerciseFilter">
+          <select id="historyExerciseFilter" class="history-filter__select" aria-label="Filter workout history by exercise">
+            ${filterOptionsHtml}
+          </select>
+        </label>
+        <span class="history-pagination__label">Page ${this.historyPage} of ${safePages}</span>
+      </div>
       <button type="button" class="history-page-btn secondary" onclick="app.changeHistoryPage(1)" ${nextDisabledAttrs} aria-label="Next page">Next</button>
     `;
+
+    const filterSelect = paginationEl.querySelector("#historyExerciseFilter");
+    if (filterSelect) {
+      filterSelect.value = activeKey;
+      filterSelect.addEventListener("change", (event) => {
+        this.setHistoryFilter(event.target.value);
+      });
+    }
   }
 
   getHistoryPageCount() {
-    if (!Array.isArray(this.workoutHistory) || this.workoutHistory.length === 0) {
+    const filteredEntries = this.getFilteredHistoryEntries();
+    if (filteredEntries.length === 0) {
       return 0;
     }
-    const pageSize = Number(this.historyPageSize) > 0 ? this.historyPageSize : 5;
-    return Math.ceil(this.workoutHistory.length / pageSize);
+    const pageSize = this.getHistoryPageSize();
+    return Math.ceil(filteredEntries.length / pageSize);
   }
 
   setHistoryPage(page) {
@@ -7651,6 +7787,7 @@ class VitruvianApp {
       justLift: false,
       stopAtTop: false,
       progressionKg: 0,                    // reuse progression logic if desired
+      intensity: "none",                   // intensity technique (none|dropset|restpause|slownegatives)
     };
   }
 
@@ -7995,8 +8132,28 @@ class VitruvianApp {
       const setsValue = toAttrValue(toNumberString(item.sets));
       const restValue = toAttrValue(toNumberString(item.restSec));
 
-      const commonHtml = `
+      const nameField = `
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" value="${nameValue}" oninput="app.updatePlanField(${i}, 'name', this.value)" />
+        </div>
+      `;
 
+      const setsField = `
+        <div class="form-group">
+          <label>Sets</label>
+          <input type="number" min="1" max="99" value="${setsValue}" oninput="app.updatePlanField(${i}, 'sets', parseInt(this.value)||1)" />
+        </div>
+      `;
+
+      const restField = `
+        <div class="form-group">
+          <label>Rest (sec)</label>
+          <input type="number" min="0" max="600" value="${restValue}" oninput="app.updatePlanField(${i}, 'restSec', parseInt(this.value)||0)" />
+        </div>
+      `;
+
+      const toggleFields = `
         <div class="form-group plan-card__toggles">
           <label class="plan-card__toggle-option">
             <input type="checkbox" ${item.justLift ? "checked" : ""} onchange="app.updatePlanField(${i}, 'justLift', this.checked)" />
@@ -8058,13 +8215,9 @@ class VitruvianApp {
         const progressionStep = unit === "lb" ? "0.2" : "0.1";
 
         grid.innerHTML = `
-        <div class="form-group">
-          <label>Name</label>
-          <input type="text" value="${nameValue}" oninput="app.updatePlanField(${i}, 'name', this.value)" />
-        </div>    
+          ${nameField}
 
-
-      <div class="form-group">
+          <div class="form-group">
             <label>Mode</label>
             <select onchange="app.updatePlanField(${i}, 'mode', parseInt(this.value))">
               ${modeOptions}
@@ -8088,13 +8241,10 @@ class VitruvianApp {
             <input type="number" min="0" max="100" value="${repsValue}" oninput="app.updatePlanField(${i}, 'reps', parseInt(this.value)||0)" />
           </div>
 
-	<div class="form-group">
-          <label>Sets</label>
-          <input type="number" min="1" max="99" value="${setsValue}" oninput="app.updatePlanField(${i}, 'sets', parseInt(this.value)||1)" />
-        </div>
+          ${setsField}
 
           <div class="form-group">
-            <label>Progression (${unit}/rep)</label>
+            <label>Progression (${unit} per rep)</label>
             <input type="number"
                    step="${progressionStep}"
                    min="${progressionMin}"
@@ -8104,10 +8254,24 @@ class VitruvianApp {
           </div>
 
           <div class="form-group">
-          <label>Rest (sec)</label>
-          <input type="number" min="0" max="600" value="${restValue}" oninput="app.updatePlanField(${i}, 'restSec', parseInt(this.value)||0)" />
-        </div>
-          ${commonHtml}
+            <label class="label-with-hint">
+              <span>Intensity Technique</span>
+              <i
+                class="bi bi-info-circle"
+                title="Optional finisher applied to the last set: Dropset, Rest-Pause, or Slow negatives."
+                aria-label="Intensity technique help"
+              ></i>
+            </label>
+            <select onchange="app.updatePlanField(${i}, 'intensity', this.value)">
+              <option value="none" ${item.intensity === "none" ? "selected" : ""}>None (default)</option>
+              <option value="dropset" ${item.intensity === "dropset" ? "selected" : ""}>Dropset</option>
+              <option value="restpause" ${item.intensity === "restpause" ? "selected" : ""}>Rest-Pause</option>
+              <option value="slownegatives" ${item.intensity === "slownegatives" ? "selected" : ""}>Slow negatives</option>
+            </select>
+          </div>
+
+          ${restField}
+          ${toggleFields}
         `;
       } else {
         // echo
@@ -8127,13 +8291,9 @@ class VitruvianApp {
         const targetRepsValue = toAttrValue(toNumberString(item.targetReps));
 
         grid.innerHTML = `
+          ${nameField}
 
-        <div class="form-group">
-          <label>Name</label>
-          <input type="text" value="${nameValue}" oninput="app.updatePlanField(${i}, 'name', this.value)" />
-        </div>    
-
-      <div class="form-group">
+          <div class="form-group">
             <label>Level</label>
             <select onchange="app.updatePlanField(${i}, 'level', parseInt(this.value))">
               ${levelOptions}
@@ -8150,17 +8310,9 @@ class VitruvianApp {
             <input type="number" min="0" max="150" step="5" value="${eccentricValue}" oninput="app.updatePlanField(${i}, 'eccentricPct', parseInt(this.value)||0)" />
           </div>
 
-	<div class="form-group">
-          <label>Sets</label>
-          <input type="number" min="1" max="99" value="${setsValue}" oninput="app.updatePlanField(${i}, 'sets', parseInt(this.value)||1)" />
-        </div>
-
-          <div class="form-group">
-          <label>Rest (sec)</label>
-          <input type="number" min="0" max="600" value="${restValue}" oninput="app.updatePlanField(${i}, 'restSec', parseInt(this.value)||0)" />
-        </div>
-
-          ${commonHtml}
+          ${setsField}
+          ${restField}
+          ${toggleFields}
         `;
       }
 
