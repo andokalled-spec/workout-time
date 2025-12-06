@@ -27,6 +27,16 @@
 
       this.initializePlanSummary?.();
 
+      // Initialize grouping support if available
+      if (typeof GroupingLogic !== "undefined") {
+        const { groups } = GroupingLogic.analyzeGroups(this.planItems);
+        this._planGroups = groups;
+        this._planGroupStates = {};
+        for (const group of groups) {
+          this._planGroupStates[group.groupNumber] = GroupingLogic.initializeGroupState(group);
+        }
+      }
+
       this.planActive = true;
       this.planTimeline = timeline;
       this.planTimelineIndex = 0;
@@ -150,7 +160,75 @@
         return;
       }
 
-      this.planTimelineIndex += 1;
+      // Check if current item is part of a group
+      const currentEntry = this.planTimeline[this.planTimelineIndex];
+      const currentItem = currentEntry ? this.planItems[currentEntry.itemIndex] : null;
+      const isInGroup = currentItem && typeof currentItem.groupNumber === "number" && currentItem.groupNumber !== null;
+
+      if (isInGroup && typeof GroupingLogic !== "undefined") {
+        // Handle grouped exercise logic
+        const groupNumber = currentItem.groupNumber;
+        const groupState = this._planGroupStates?.[groupNumber];
+        if (groupState) {
+          // Mark current exercise as having completed a set this round
+          if (!groupState.exercisesCompletedThisRound) {
+            groupState.exercisesCompletedThisRound = new Set();
+          }
+          groupState.exercisesCompletedThisRound.add(currentEntry.itemIndex);
+          groupState.lastExerciseInRound = currentEntry.itemIndex;
+
+          // Find all exercises in this group
+          const groupExercises = this.planItems.reduce((acc, item, idx) => {
+            if (item && item.groupNumber === groupNumber) {
+              acc.push(idx);
+            }
+            return acc;
+          }, []);
+
+          const allSetsCompletedInGroup = groupExercises.every(itemIdx => {
+            const item = this.planItems[itemIdx];
+            return groupState.exercisesCompletedThisRound.has(itemIdx);
+          });
+
+          if (allSetsCompletedInGroup) {
+            // All exercises in group completed this round
+            groupState.currentRound += 1;
+            groupState.setsRemaining = groupExercises.map(itemIdx => {
+              const item = this.planItems[itemIdx];
+              return Number(item?.sets) || 1;
+            });
+            groupState.exercisesCompletedThisRound = new Set();
+            this.addLogEntry(`Superset round ${groupState.currentRound - 1} complete.`, "info");
+          } else {
+            // Move to next ungrouped set in same group
+            const nextItemIndex = groupExercises.find(itemIdx => 
+              !groupState.exercisesCompletedThisRound.has(itemIdx)
+            );
+            if (nextItemIndex !== undefined) {
+              // Find the first timeline entry for this item that hasn't been completed
+              let foundNext = false;
+              for (let i = this.planTimelineIndex + 1; i < this.planTimeline.length; i++) {
+                const entry = this.planTimeline[i];
+                if (entry.itemIndex === nextItemIndex && entry.set === groupState.currentRound) {
+                  this.planTimelineIndex = i - 1; // Will be incremented below
+                  foundNext = true;
+                  break;
+                }
+              }
+              if (!foundNext) {
+                this.planTimelineIndex += 1;
+              }
+            } else {
+              this.planTimelineIndex += 1;
+            }
+          }
+        } else {
+          this.planTimelineIndex += 1;
+        }
+      } else {
+        // Standard timeline advancement for ungrouped exercises
+        this.planTimelineIndex += 1;
+      }
 
       if (!Array.isArray(this.planTimeline) || this.planTimelineIndex >= this.planTimeline.length) {
         this._planFinish();
@@ -1011,7 +1089,57 @@
         return false;
       }
 
-      const target = this.planTimelineIndex + delta;
+      // Check if current item is grouped
+      const currentEntry = this.planTimeline[this.planTimelineIndex];
+      const currentItem = currentEntry ? this.planItems[currentEntry.itemIndex] : null;
+      const isInGroup = currentItem && typeof currentItem.groupNumber === "number" && currentItem.groupNumber !== null;
+
+      let target = this.planTimelineIndex + delta;
+
+      // If navigating within a group, skip to the next/previous ungrouped exercise or first/last of group
+      if (isInGroup && typeof GroupingLogic !== "undefined" && delta > 0) {
+        const groupNumber = currentItem.groupNumber;
+        const groupExercises = this.planItems.reduce((acc, item, idx) => {
+          if (item && item.groupNumber === groupNumber) {
+            acc.push(idx);
+          }
+          return acc;
+        }, []);
+        
+        // Skip to first exercise after this group
+        let skipToEnd = false;
+        for (let i = this.planTimelineIndex + 1; i < this.planTimeline.length; i++) {
+          const entry = this.planTimeline[i];
+          const item = this.planItems[entry.itemIndex];
+          if (item && (!Number.isFinite(item.groupNumber) || item.groupNumber !== groupNumber)) {
+            target = i;
+            skipToEnd = true;
+            break;
+          }
+        }
+        if (!skipToEnd) {
+          this.addLogEntry("Reached the end of the superset.", "info");
+          this._planFinish();
+          return true;
+        }
+      } else if (isInGroup && typeof GroupingLogic !== "undefined" && delta < 0) {
+        // Navigate backward: go to start of group
+        const groupNumber = currentItem.groupNumber;
+        let skipToStart = false;
+        for (let i = this.planTimelineIndex - 1; i >= 0; i--) {
+          const entry = this.planTimeline[i];
+          const item = this.planItems[entry.itemIndex];
+          if (!item || (!Number.isFinite(item.groupNumber) || item.groupNumber !== groupNumber)) {
+            target = i + 1;
+            skipToStart = true;
+            break;
+          }
+        }
+        if (!skipToStart) {
+          target = 0;
+        }
+      }
+
       if (target < 0) {
         this.addLogEntry("Already at the first set.", "warning");
         return false;

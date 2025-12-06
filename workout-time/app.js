@@ -190,6 +190,11 @@ class VitruvianApp {
     this._lastTargetSyncError = null;
     this._lastWeightSyncError = null;
 
+    // Grouping/superset state
+    this._planGroups = [];      // analyzed groups from planItems
+    this._planGroupStates = {}; // groupNumber -> { currentRound, setsRemaining, lastExerciseInRound }
+    this._currentGroupNumber = null; // which group we're currently executing
+
     this._hasPerformedInitialSync = false; // track if we've auto-synced once per session
     this._autoSyncInFlight = false;
     this._dropboxConnectInFlight = false;
@@ -2343,8 +2348,26 @@ class VitruvianApp {
     const name = item.name || (item.type === "echo" ? "Echo Mode" : "Exercise");
     els.name.textContent = name;
 
-    const totalSets = Math.max(1, Number(item.sets) || 1);
-    const setText = `Set ${entry.set} of ${totalSets}`;
+    // Check if item is part of a group
+    const isGrouped = typeof item.groupNumber === "number" && item.groupNumber !== null;
+    const groupState = isGrouped ? this._planGroupStates?.[item.groupNumber] : null;
+
+    let setText = "";
+    if (isGrouped && groupState) {
+      // Display group round and exercise position
+      const groupExercises = this.planItems.reduce((acc, it, idx) => {
+        if (it && it.groupNumber === item.groupNumber) {
+          acc.push(idx);
+        }
+        return acc;
+      }, []);
+      const currentRound = groupState.currentRound;
+      const position = groupExercises.indexOf(entry.itemIndex) + 1;
+      setText = `Set ${entry.set} of ${Math.max(1, Number(item.sets) || 1)} • Round ${currentRound} • Ex ${position}/${groupExercises.length}`;
+    } else {
+      const totalSets = Math.max(1, Number(item.sets) || 1);
+      setText = `Set ${entry.set} of ${totalSets}`;
+    }
     els.set.textContent = setText;
 
     const planReps = Number(item.reps);
