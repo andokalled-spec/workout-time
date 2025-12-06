@@ -940,6 +940,11 @@ class VitruvianApp {
     ) {
       this.currentWorkout.startTime = new Date();
       this.addLogEntry("Workout timer started at first warmup rep", "info");
+      try {
+        if (this.isAudioTriggersEnabled()) {
+          this.playAudio("calibrateLift").catch(() => {});
+        }
+      } catch (e) {}
     }
   }
 
@@ -7271,11 +7276,13 @@ class VitruvianApp {
         newPersonalRecord: "New Personal Record.mp3",
         maxedOut: "Maxed Out.mp3",
         beastMode: "Beast Mode.mp3",
+        calibrateLift: "Calibrate your Lift.mp3",
         strengthUnlocked: "Strength Unlocked.mp3",
+        startLifting: "Start Lifting.mp3",
         crowdCheer: "crowd cheering.mp3",
         grindContinues: "The Grind Continues.mp3",
-        // repcount files: e.g. `1_repcount.mov`, `2_repcount.mov`
-        repcount: (rep) => `${rep}_repcount.mov`,
+        // repcount files: e.g. `1_repcount.mp3`, `01_repcount.mp3`
+        repcount: (rep) => `${rep}_repcount.mp3`,
       };
 
       let filename = null;
@@ -7289,30 +7296,13 @@ class VitruvianApp {
 
       if (!filename) return false;
 
-      // For repcount files try a few candidate filename variants (zero-padded, non-padded, and .mp3 fallback)
+      // For repcount files try zero-padded and non-padded .mp3 variants (e.g. '01_repcount.mp3', '1_repcount.mp3')
       const candidates = [];
       if (key === "repcount") {
         const repNum = Number(options.rep || 0) || 0;
-        const base = typeof mapping.repcount === "function" ? mapping.repcount(repNum) : filename;
-        // base will be like '1_repcount.mov' — also try zero-padded and .mp3 variants
-        candidates.push(base);
-        if (repNum >= 0 && repNum < 100) {
-          const pad2 = repNum.toString().padStart(2, "0");
-          if (pad2 !== repNum.toString()) {
-            candidates.unshift(`${pad2}_${base.split("_").slice(1).join("_")}`);
-          }
-        }
-        // Add .mp3 variants as fallback for file type compatibility
-        const baseMp3 = base.replace(/\.mov$/i, ".mp3");
-        if (baseMp3 !== base) {
-          candidates.push(baseMp3);
-          if (repNum >= 0 && repNum < 100) {
-            const pad2 = repNum.toString().padStart(2, "0");
-            if (pad2 !== repNum.toString()) {
-              candidates.push(`${pad2}_${baseMp3.split("_").slice(1).join("_")}`);
-            }
-          }
-        }
+        const pad2 = repNum.toString().padStart(2, "0");
+        candidates.push(`${pad2}_repcount.mp3`);
+        candidates.push(`${repNum}_repcount.mp3`);
       } else {
         candidates.push(filename);
       }
@@ -7408,18 +7398,16 @@ class VitruvianApp {
       "New Personal Record.mp3",
       "Maxed Out.mp3",
       "Beast Mode.mp3",
+      "Calibrate your Lift.mp3",
       "Strength Unlocked.mp3",
+      "Start Lifting.mp3",
       "crowd cheering.mp3",
       "The Grind Continues.mp3",
     ];
 
-    // Preload repcount files for 1..25 (both .mov and .mp3, padded and non-padded)
+    // Preload repcount files for 1..25 (mp3, padded and non-padded)
     const repCandidates = new Set();
     for (let i = 1; i <= 25; i++) {
-      // .mov variants
-      repCandidates.add(`${i}_repcount.mov`);
-      repCandidates.add(`${i.toString().padStart(2, "0")}_repcount.mov`);
-      // .mp3 variants as fallback
       repCandidates.add(`${i}_repcount.mp3`);
       repCandidates.add(`${i.toString().padStart(2, "0")}_repcount.mp3`);
     }
@@ -7709,7 +7697,9 @@ class VitruvianApp {
       // During working reps, try repcount audio file first, then fallback to oscillator.
       const currentWarmupReps = Number(this.warmupReps) || 0;
       const currentWorkingReps = Number(this.workingReps) || 0;
-      const isWarmupRep = currentWarmupReps > 0;
+      const totalSoFar = currentWarmupReps + currentWorkingReps;
+      const nextRepOverall = totalSoFar + 1;
+      const isWarmupRep = Number.isFinite(this.warmupTarget) && nextRepOverall <= (Number(this.warmupTarget) || 0);
       const nextRepCount = currentWorkingReps + 1;
 
       // Helper to play oscillator beep
@@ -7908,6 +7898,11 @@ class VitruvianApp {
         // Record when warmup ends (last warmup rep complete)
         if (this.warmupReps === this.warmupTarget && this.currentWorkout && !this.currentWorkout.warmupEndTime) {
           this.currentWorkout.warmupEndTime = new Date();
+          try {
+            if (this.isAudioTriggersEnabled()) {
+              this.playAudio("startLifting").catch(() => {});
+            }
+          } catch (e) {}
         }
       } else {
         // Working reps
