@@ -1915,6 +1915,11 @@ class VitruvianApp {
         }.`,
         "success",
       );
+      try {
+        if (this.isAudioTriggersEnabled()) {
+          this.playAudio("strengthUnlocked").catch(() => {});
+        }
+      } catch (e) {}
     }
 
     return updated;
@@ -1956,6 +1961,11 @@ class VitruvianApp {
         }.`,
         "success",
       );
+      try {
+        if (this.isAudioTriggersEnabled()) {
+          this.playAudio("strengthUnlocked").catch(() => {});
+        }
+      } catch (e) {}
     }
 
     return updated;
@@ -7236,7 +7246,17 @@ class VitruvianApp {
     btn.addEventListener("click", () => {
       const newVal = !this.isAudioTriggersEnabled();
       this.setAudioTriggersEnabled(newVal);
-      if (newVal) this.tryResumeAudioContext();
+      if (newVal) {
+        this.tryResumeAudioContext();
+        // Small async preload after a user gesture to warm up assets and reduce latency.
+        setTimeout(() => {
+          try {
+            this.preloadAudioCueAssets();
+          } catch (e) {
+            // ignore preload failures
+          }
+        }, 50);
+      }
     });
   }
 
@@ -7269,29 +7289,129 @@ class VitruvianApp {
 
       if (!filename) return false;
 
-      const src = `AudioCue/${filename}`;
-
-      let audio = this._audioCache.get(src);
-      if (!audio) {
-        audio = new Audio(src);
-        audio.preload = "auto";
-        this._audioCache.set(src, audio);
+      // For repcount files try a few candidate filename variants (zero-padded and non-padded)
+      const candidates = [];
+      if (key === "repcount") {
+        const repNum = Number(options.rep || 0) || 0;
+        const base = typeof mapping.repcount === "function" ? mapping.repcount(repNum) : filename;
+        // base will be like '1_repcount.mov' — also try '01_repcount.mov'
+        candidates.push(base);
+        if (repNum >= 0 && repNum < 100) {
+          const pad2 = repNum.toString().padStart(2, "0");
+          if (pad2 !== repNum.toString()) {
+            candidates.unshift(`${pad2}_${base.split("_").slice(1).join("_")}`);
+          }
+        }
+      } else {
+        candidates.push(filename);
       }
 
-      // Ensure audio context resumed first (user gesture requirement)
+      // Try candidates sequentially until one plays
       this.tryResumeAudioContext();
+      for (const candidate of candidates) {
+        const src = `AudioCue/${candidate}`;
+        try {
+          let audio = this._audioCache.get(src);
+          if (!audio) {
+            audio = new Audio(src);
+            audio.preload = "auto";
+            this._audioCache.set(src, audio);
+          }
+          await audio.play();
+          return true;
+        } catch (err) {
+          // Try next candidate
+          continue;
+        }
+      }
 
-      // Play and return true if successful
-      await audio.play().catch((err) => {
-        // If file playback fails, let caller know so it can fallback
-        throw err;
-      });
-
-      return true;
+      return false;
     } catch (err) {
       // Silent failure: audio not found or blocked. Return false so caller can fallback.
       return false;
     }
+  }
+
+  // Preload a list of audio filenames into the audio cache to reduce latency.
+  // Accepts filenames relative to the `AudioCue/` folder.
+  preloadAudioAssets(filenames = []) {
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    const tasks = [];
+    for (const filename of filenames) {
+      if (!filename) continue;
+      const src = `AudioCue/${filename}`;
+      if (this._audioCache.has(src)) {
+        continue; // already cached
+      }
+
+      try {
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        this._audioCache.set(src, audio);
+
+        const p = new Promise((resolve) => {
+          const onReady = () => {
+            cleanup();
+            resolve({ src, status: "ok" });
+          };
+          const onError = () => {
+            cleanup();
+            resolve({ src, status: "error" });
+          };
+          const cleanup = () => {
+            audio.removeEventListener("canplaythrough", onReady);
+            audio.removeEventListener("loadedmetadata", onReady);
+            audio.removeEventListener("error", onError);
+          };
+
+          audio.addEventListener("canplaythrough", onReady, { once: true });
+          audio.addEventListener("loadedmetadata", onReady, { once: true });
+          audio.addEventListener("error", onError, { once: true });
+          // Kick off loading
+          try {
+            audio.load();
+          } catch (e) {
+            // ignore
+            resolve({ src, status: "error" });
+          }
+        });
+
+        tasks.push(p);
+      } catch (err) {
+        // ignore single failures
+      }
+    }
+
+    return Promise.allSettled(tasks).then((results) => results.map((r) => (r.status === "fulfilled" ? r.value : { status: "error" })));
+  }
+
+  // Preload the commonly used cue files and a range of repcount files.
+  preloadAudioCueAssets() {
+    if (this._preloadInFlight) return this._preloadInFlight;
+    const baseFiles = [
+      "New Personal Record.mp3",
+      "Maxed Out.mp3",
+      "Beast Mode.mp3",
+      "Strength Unlocked.mp3",
+      "crowd cheering.mp3",
+      "The Grind Continues.mp3",
+    ];
+
+    // Preload repcount files for 1..20 (both padded and non-padded)
+    const repCandidates = new Set();
+    for (let i = 1; i <= 20; i++) {
+      repCandidates.add(`${i}_repcount.mov`);
+      repCandidates.add(`${i.toString().padStart(2, "0")}_repcount.mov`);
+    }
+
+    const all = baseFiles.concat(Array.from(repCandidates));
+    this._preloadInFlight = this.preloadAudioAssets(all).finally(() => {
+      this._preloadInFlight = null;
+    });
+    return this._preloadInFlight;
   }
 
   getAudioContext() {
