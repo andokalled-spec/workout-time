@@ -7217,6 +7217,12 @@ class VitruvianApp {
     const btn = document.getElementById("audioTriggersToggle");
     if (btn) {
       btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+      // reflect persistent visual state
+      if (enabled) {
+        btn.classList.add("is-active");
+      } else {
+        btn.classList.remove("is-active");
+      }
     }
   }
 
@@ -7225,6 +7231,8 @@ class VitruvianApp {
     if (!btn) return;
     const enabled = this.isAudioTriggersEnabled();
     btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    if (enabled) btn.classList.add("is-active");
+    else btn.classList.remove("is-active");
     btn.addEventListener("click", () => {
       const newVal = !this.isAudioTriggersEnabled();
       this.setAudioTriggersEnabled(newVal);
