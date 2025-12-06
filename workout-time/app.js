@@ -167,6 +167,7 @@ class VitruvianApp {
     this.registerDeviceListeners();
     this.setupChart();
     this.setupUnitControls();
+    this.initializeAudioToggle();
     this.planItems = [];        // array of {type: 'exercise'|'echo', fields...}
     this.planActive = false;    // true when plan runner is active
     this.planCursor = { index: 0, set: 1 }; // current item & set counter
@@ -2177,6 +2178,12 @@ class VitruvianApp {
 
     this._planSummaryOverlay.classList.add("is-visible");
     this._planSummaryOverlay.setAttribute("aria-hidden", "false");
+
+    try {
+      if (this.isAudioTriggersEnabled()) {
+        this.playAudio("crowdCheer").catch(() => {});
+      }
+    } catch (e) {}
 
     const closeBtn = document.getElementById("planSummaryCloseBtn");
     closeBtn?.focus({ preventScroll: true });
@@ -6604,6 +6611,11 @@ class VitruvianApp {
       let prInfo = null;
       if (storedWorkout) {
         prInfo = this.displayTotalLoadPR(storedWorkout);
+        try {
+          if (this.isAudioTriggersEnabled() && prInfo?.status === "new") {
+            this.playAudio("newPersonalRecord").catch(() => {});
+          }
+        } catch (e) {}
       } else {
         this.hidePRBanner();
       }
@@ -6648,6 +6660,18 @@ class VitruvianApp {
           .catch((error) => {
             this.addLogEntry(`Failed to auto-save to Dropbox: ${error.message}`, "error");
           });
+
+        // If enabled, play a 'maxed out' audio cue when a single-cable peak is very high
+        try {
+          if (this.isAudioTriggersEnabled() && storedWorkout) {
+            const peakKg = Number(storedWorkout.cablePeakKg || 0) || Number(this.calculateTotalLoadPeakKg(storedWorkout) || 0);
+            if (Number.isFinite(peakKg) && peakKg >= 95) {
+              this.playAudio("maxedOut").catch(() => {});
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
       }
 
       if (!isSkipped && this.planActive && completedPlanEntry) {
@@ -7172,6 +7196,96 @@ class VitruvianApp {
     }
   }
 
+  /* Audio triggers manager
+   * - Toggle persisted in localStorage `vitruvian.audioTriggersEnabled`
+  * - `playAudio(key)` attempts to play a mapped file from `AudioCue/`
+   * - Falls back to existing oscillator beep behavior when file playback fails.
+   */
+  isAudioTriggersEnabled() {
+    try {
+      const raw = localStorage.getItem("vitruvian.audioTriggersEnabled");
+      return raw === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  setAudioTriggersEnabled(enabled) {
+    try {
+      localStorage.setItem("vitruvian.audioTriggersEnabled", enabled ? "true" : "false");
+    } catch {}
+    const btn = document.getElementById("audioTriggersToggle");
+    if (btn) {
+      btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    }
+  }
+
+  initializeAudioToggle() {
+    const btn = document.getElementById("audioTriggersToggle");
+    if (!btn) return;
+    const enabled = this.isAudioTriggersEnabled();
+    btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    btn.addEventListener("click", () => {
+      const newVal = !this.isAudioTriggersEnabled();
+      this.setAudioTriggersEnabled(newVal);
+      if (newVal) this.tryResumeAudioContext();
+    });
+  }
+
+  // Simple audio cache / player for AudioCue assets.
+  _audioCache = new Map();
+
+  async playAudio(key, options = {}) {
+    try {
+      if (!this.isAudioTriggersEnabled()) return false;
+
+      const mapping = {
+        newPersonalRecord: "New Personal Record.mp3",
+        maxedOut: "Maxed Out.mp3",
+        beastMode: "Beast Mode.mp3",
+        strengthUnlocked: "Strength Unlocked.mp3",
+        crowdCheer: "crowd cheering.mp3",
+        grindContinues: "The Grind Continues.mp3",
+        // repcount files: e.g. `1_repcount.mov`, `2_repcount.mov`
+        repcount: (rep) => `${rep}_repcount.mov`,
+      };
+
+      let filename = null;
+      if (Object.prototype.hasOwnProperty.call(mapping, key)) {
+        const val = mapping[key];
+        filename = typeof val === "function" ? val(options.rep || 0) : val;
+      } else {
+        // allow caller to pass direct filename
+        filename = key;
+      }
+
+      if (!filename) return false;
+
+      const src = `AudioCue/${filename}`;
+
+      let audio = this._audioCache.get(src);
+      if (!audio) {
+        audio = new Audio(src);
+        audio.preload = "auto";
+        this._audioCache.set(src, audio);
+      }
+
+      // Ensure audio context resumed first (user gesture requirement)
+      this.tryResumeAudioContext();
+
+      // Play and return true if successful
+      await audio.play().catch((err) => {
+        // If file playback fails, let caller know so it can fallback
+        throw err;
+      });
+
+      return true;
+    } catch (err) {
+      // Silent failure: audio not found or blocked. Return false so caller can fallback.
+      return false;
+    }
+  }
+
   getAudioContext() {
     try {
       const AudioContextClass =
@@ -7444,22 +7558,57 @@ class VitruvianApp {
         return;
       }
       this._lastRepTopBeep = now;
+      // If audio triggers enabled, try to play a repcount movie (e.g., "3_repcount.mov").
+      // Fallback to oscillator beep if file playback fails or not enabled.
+      // Try to play repcount asset. If playback fails, fall back to oscillator beep.
+      const repCount = (Number(this.workingReps) || 0) + 1; // estimate next rep count
+      this.playAudio("repcount", { rep: repCount })
+        .then((played) => {
+          if (played) return;
 
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
+          // fallback oscillator beep
+          try {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
 
-      oscillator.type = "triangle";
-      oscillator.frequency.setValueAtTime(880, now);
+            oscillator.type = "triangle";
+            oscillator.frequency.setValueAtTime(880, now);
 
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
 
-      oscillator.connect(gain);
-      gain.connect(context.destination);
+            oscillator.connect(gain);
+            gain.connect(context.destination);
 
-      oscillator.start(now);
-      oscillator.stop(now + 0.3);
+            oscillator.start(now);
+            oscillator.stop(now + 0.3);
+          } catch (err) {
+            // ignore
+          }
+        })
+        .catch(() => {
+          // fallback oscillator beep on error
+          try {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+
+            oscillator.type = "triangle";
+            oscillator.frequency.setValueAtTime(880, now);
+
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+
+            oscillator.connect(gain);
+            gain.connect(context.destination);
+
+            oscillator.start(now);
+            oscillator.stop(now + 0.3);
+          } catch (err) {
+            // ignore
+          }
+        });
     } catch (error) {
       // Silently ignore audio failures to avoid spamming logs
     }
@@ -7870,6 +8019,18 @@ class VitruvianApp {
       this._lastWeightSyncError = null;
 
       await this.device.startProgram(params);
+
+      // If audio triggers enabled, play beast-mode announcement for TUT Beast
+      try {
+        if (this.isAudioTriggersEnabled() && typeof ProgramMode !== "undefined") {
+          if (Number(params.baseMode) === ProgramMode.TUT_BEAST) {
+            // best-effort: play beast audio, ignore failures
+            this.playAudio("beastMode").catch(() => {});
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
 
       // Update stop button state
       this.updateStopButtonState();
