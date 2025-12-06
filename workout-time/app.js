@@ -7289,17 +7289,28 @@ class VitruvianApp {
 
       if (!filename) return false;
 
-      // For repcount files try a few candidate filename variants (zero-padded and non-padded)
+      // For repcount files try a few candidate filename variants (zero-padded, non-padded, and .mp3 fallback)
       const candidates = [];
       if (key === "repcount") {
         const repNum = Number(options.rep || 0) || 0;
         const base = typeof mapping.repcount === "function" ? mapping.repcount(repNum) : filename;
-        // base will be like '1_repcount.mov' — also try '01_repcount.mov'
+        // base will be like '1_repcount.mov' — also try zero-padded and .mp3 variants
         candidates.push(base);
         if (repNum >= 0 && repNum < 100) {
           const pad2 = repNum.toString().padStart(2, "0");
           if (pad2 !== repNum.toString()) {
             candidates.unshift(`${pad2}_${base.split("_").slice(1).join("_")}`);
+          }
+        }
+        // Add .mp3 variants as fallback for file type compatibility
+        const baseMp3 = base.replace(/\.mov$/i, ".mp3");
+        if (baseMp3 !== base) {
+          candidates.push(baseMp3);
+          if (repNum >= 0 && repNum < 100) {
+            const pad2 = repNum.toString().padStart(2, "0");
+            if (pad2 !== repNum.toString()) {
+              candidates.push(`${pad2}_${baseMp3.split("_").slice(1).join("_")}`);
+            }
           }
         }
       } else {
@@ -7317,6 +7328,8 @@ class VitruvianApp {
             audio.preload = "auto";
             this._audioCache.set(src, audio);
           }
+          // Reset currentTime to 0 to allow rapid replays of the same audio element
+          audio.currentTime = 0;
           await audio.play();
           return true;
         } catch (err) {
@@ -7400,11 +7413,15 @@ class VitruvianApp {
       "The Grind Continues.mp3",
     ];
 
-    // Preload repcount files for 1..20 (both padded and non-padded)
+    // Preload repcount files for 1..25 (both .mov and .mp3, padded and non-padded)
     const repCandidates = new Set();
-    for (let i = 1; i <= 20; i++) {
+    for (let i = 1; i <= 25; i++) {
+      // .mov variants
       repCandidates.add(`${i}_repcount.mov`);
       repCandidates.add(`${i.toString().padStart(2, "0")}_repcount.mov`);
+      // .mp3 variants as fallback
+      repCandidates.add(`${i}_repcount.mp3`);
+      repCandidates.add(`${i.toString().padStart(2, "0")}_repcount.mp3`);
     }
 
     const all = baseFiles.concat(Array.from(repCandidates));
@@ -7686,57 +7703,58 @@ class VitruvianApp {
         return;
       }
       this._lastRepTopBeep = now;
-      // If audio triggers enabled, try to play a repcount movie (e.g., "3_repcount.mov").
-      // Fallback to oscillator beep if file playback fails or not enabled.
-      // Try to play repcount asset. If playback fails, fall back to oscillator beep.
-      const repCount = (Number(this.workingReps) || 0) + 1; // estimate next rep count
-      this.playAudio("repcount", { rep: repCount })
-        .then((played) => {
-          if (played) return;
 
-          // fallback oscillator beep
-          try {
-            const oscillator = context.createOscillator();
-            const gain = context.createGain();
+      // Determine if we're in warmup or working reps.
+      // During warmup reps, always use oscillator beep.
+      // During working reps, try repcount audio file first, then fallback to oscillator.
+      const currentWarmupReps = Number(this.warmupReps) || 0;
+      const currentWorkingReps = Number(this.workingReps) || 0;
+      const isWarmupRep = currentWarmupReps > 0;
+      const nextRepCount = currentWorkingReps + 1;
 
-            oscillator.type = "triangle";
-            oscillator.frequency.setValueAtTime(880, now);
+      // Helper to play oscillator beep
+      const playOscillatorBeep = () => {
+        try {
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
 
-            gain.gain.setValueAtTime(0.0001, now);
-            gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+          oscillator.type = "triangle";
+          oscillator.frequency.setValueAtTime(880, now);
 
-            oscillator.connect(gain);
-            gain.connect(context.destination);
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
 
-            oscillator.start(now);
-            oscillator.stop(now + 0.3);
-          } catch (err) {
-            // ignore
-          }
-        })
-        .catch(() => {
-          // fallback oscillator beep on error
-          try {
-            const oscillator = context.createOscillator();
-            const gain = context.createGain();
+          oscillator.connect(gain);
+          gain.connect(context.destination);
 
-            oscillator.type = "triangle";
-            oscillator.frequency.setValueAtTime(880, now);
+          oscillator.start(now);
+          oscillator.stop(now + 0.3);
+        } catch (err) {
+          // ignore
+        }
+      };
 
-            gain.gain.setValueAtTime(0.0001, now);
-            gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-
-            oscillator.connect(gain);
-            gain.connect(context.destination);
-
-            oscillator.start(now);
-            oscillator.stop(now + 0.3);
-          } catch (err) {
-            // ignore
-          }
-        });
+      // If warmup, always use beep. If working, try repcount audio first.
+      if (isWarmupRep) {
+        playOscillatorBeep();
+      } else {
+        // Working reps: try repcount audio file (1-25), fallback to beep
+        if (nextRepCount >= 1 && nextRepCount <= 25 && this.isAudioTriggersEnabled()) {
+          this.playAudio("repcount", { rep: nextRepCount })
+            .then((played) => {
+              if (!played) {
+                playOscillatorBeep();
+              }
+            })
+            .catch(() => {
+              playOscillatorBeep();
+            });
+        } else {
+          // Audio disabled, out of range, or warmup: use beep
+          playOscillatorBeep();
+        }
+      }
     } catch (error) {
       // Silently ignore audio failures to avoid spamming logs
     }
