@@ -308,7 +308,32 @@
         }
 
         if (nextStep.action === "complete") {
-          // Group is complete - fall through to regular advancement
+          // Group is complete - ensure timeline index moves to after the group's
+          // last timeline entry so regular advancement resumes correctly.
+          try {
+            const group = this.supersetExecutor.findGroupForItem(currentItemIndex);
+            if (group && Array.isArray(group.items) && group.items.length) {
+              const groupItemSet = new Set(group.items.map((it) => it.index));
+              let lastTimelineIdx = -1;
+              for (let i = 0; i < this.planTimeline.length; i++) {
+                const te = this.planTimeline[i];
+                if (te && groupItemSet.has(te.itemIndex)) {
+                  lastTimelineIdx = i;
+                }
+              }
+              if (lastTimelineIdx >= 0) {
+                const prev = this.planTimelineIndex;
+                this.planTimelineIndex = lastTimelineIdx;
+                this.addLogEntry(
+                  `DEBUG: group complete — moved planTimelineIndex ${prev} → ${this.planTimelineIndex} (group last entry)`,
+                  'debug',
+                );
+              }
+            }
+          } catch (err) {
+            /* best-effort — don't block */
+          }
+          // Disable group mode so default advancement resumes
           this.groupExecutionMode = false;
         }
       }
