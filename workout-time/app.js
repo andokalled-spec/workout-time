@@ -9637,6 +9637,19 @@ class VitruvianApp {
       return;
     }
 
+    // Debug: trace plan items and group numbers
+    try {
+      const groupNumbers = this.planItems.map((item, idx) => `[${idx}]${item.name}:${item.groupNumber||'none'}`).join(' ');
+      this.addLogEntry(
+        `DEBUG initializeGroupExecution: planItems groupNumbers: ${groupNumbers}`,
+        "debug",
+      );
+      // Dump full items to console for inspection
+      console.debug('Plan items passed to SupersetExecutorV2:', JSON.stringify(this.planItems.map(i => ({ name: i.name, groupNumber: i.groupNumber, sets: i.sets }))));
+    } catch (e) {
+      /* best effort */
+    }
+
     // Initialize executor with planItems
     this.supersetExecutor = new window.SupersetExecutorV2(this.planItems);
     this.groupExecutionMode = this.supersetExecutor.hasGroups();
@@ -9646,6 +9659,13 @@ class VitruvianApp {
         `Group execution mode enabled: Processing grouped exercises with sequential execution`,
         "info",
       );
+      console.debug('Superset executor state:', this.supersetExecutor.getState());
+    } else {
+      this.addLogEntry(
+        `DEBUG: No groups detected in plan items (hasGroups=${this.supersetExecutor.hasGroups()})`,
+        "debug",
+      );
+      console.debug('No groups found. Plan items:', this.planItems.map(i => i.groupNumber));
     }
   }
 
