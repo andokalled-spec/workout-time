@@ -154,25 +154,44 @@
       // If group execution is enabled, use group-based advancement
       if (this.groupExecutionMode && this.supersetExecutor) {
         const currentItemIndex = this.planCursor.index;
-        const result = this.supersetExecutor.completeSet(
-          this.currentGroupIndex,
-          currentItemIndex,
-        );
+        const nextStep = this.supersetExecutor.getNextExercise(currentItemIndex);
 
-        if (result && result.type === "rest") {
-          // Rest period - show rest countdown then continue
-          const groupInfo = this.supersetExecutor.getGroupInfo(result.groupIndex);
-          const upcomingItem = this.planItems[result.itemIndex];
+        if (nextStep.action === "next-exercise") {
+          // Move to next exercise in group without rest
+          const nextItem = this.planItems[nextStep.itemIndex];
+          if (nextItem) {
+            this.planCursor = { index: nextStep.itemIndex, set: 1 };
+            this._applyItemToUI?.(nextItem);
+            this.updatePlanSetIndicator?.();
+            this.updateCurrentSetLabel?.();
+            const remaining = this.supersetExecutor.getRemainingSets(nextStep.itemIndex);
+            const nextLabel = nextItem.name || (nextItem.type === "exercise" ? "Exercise" : "Echo");
+            this.addLogEntry(
+              `→ ${nextLabel} (${remaining} set${remaining === 1 ? "" : "s"} remaining)`,
+              "info",
+            );
+            if (this.planPaused) {
+              this._queuedPlanRun = () => this._runCurrentPlanBlock();
+            } else {
+              this._runCurrentPlanBlock();
+            }
+          }
+          return;
+        }
+
+        if (nextStep.action === "rest-then-continue") {
+          // Rest, then continue to next round
+          const nextItem = this.planItems[nextStep.itemIndex];
+          const restItem = this.planItems[nextStep.restAfter];
           const nextLabel =
-            upcomingItem?.name || (upcomingItem?.type === "exercise" ? "Exercise" : "Echo Mode");
-          const nextSummary = upcomingItem ? this.describePlanItem(upcomingItem) : "";
-          const restDuration = completedEntry?.restSec || 60; // Default to 60s for rest between exercises
+            nextItem?.name || (nextItem?.type === "exercise" ? "Exercise" : "Echo");
+          const nextSummary = nextItem ? this.describePlanItem(nextItem) : "";
+          const restDuration = restItem?.restSec || 60;
 
           const runNext = () => {
-            // After rest, move to next exercise
-            if (this.planItems[result.itemIndex]) {
-              this.planCursor = { index: result.itemIndex, set: 1 };
-              this._applyItemToUI?.(this.planItems[result.itemIndex]);
+            if (nextItem) {
+              this.planCursor = { index: nextStep.itemIndex, set: 1 };
+              this._applyItemToUI?.(nextItem);
             }
             this.updatePlanSetIndicator?.();
             this.updateCurrentSetLabel?.();
@@ -184,7 +203,7 @@
           };
 
           this.addLogEntry(
-            `Rest between exercises (Round ${groupInfo.currentRound}) → ${nextLabel}`,
+            `Rest ${restDuration}s between group rounds → ${nextLabel}`,
             "info",
           );
           this._beginRest(
@@ -192,85 +211,14 @@
             runNext,
             `Next: ${nextLabel}`,
             nextSummary,
-            upcomingItem,
+            nextItem,
           );
           return;
         }
 
-        if (result && result.type === "next_round") {
-          // Moving to next round - show rest countdown
-          const groupInfo = this.supersetExecutor.getGroupInfo(result.groupIndex);
-          const upcomingItem = this.planItems[result.itemIndex];
-          const nextLabel =
-            upcomingItem?.name || (upcomingItem?.type === "exercise" ? "Exercise" : "Echo Mode");
-          const nextSummary = upcomingItem ? this.describePlanItem(upcomingItem) : "";
-          const restDuration = 120; // Rest between rounds
-
-          const runNext = () => {
-            // After rest, move to first exercise of next round
-            if (this.planItems[result.itemIndex]) {
-              this.planCursor = { index: result.itemIndex, set: 1 };
-              this._applyItemToUI?.(this.planItems[result.itemIndex]);
-            }
-            this.updatePlanSetIndicator?.();
-            this.updateCurrentSetLabel?.();
-            if (this.planPaused) {
-              this._queuedPlanRun = () => this._runCurrentPlanBlock();
-            } else {
-              this._runCurrentPlanBlock();
-            }
-          };
-
-          this.addLogEntry(
-            `Starting Round ${groupInfo.currentRound} → ${nextLabel}`,
-            "info",
-          );
-          this._beginRest(restDuration, runNext, `Round ${groupInfo.currentRound}`, nextSummary, upcomingItem);
-          return;
-        }
-
-        if (result && result.type === "complete") {
-          // Group is complete - move to next group
-          const nextGroupIndex = this.currentGroupIndex + 1;
-          const nextGroup = this.supersetExecutor.groups[nextGroupIndex];
-
-          if (nextGroup) {
-            // More groups to do
-            this.currentGroupIndex = nextGroupIndex;
-            this.supersetExecutor.initializeGroupRounds(nextGroupIndex);
-            const firstItemIndex = nextGroup.items[0].index;
-            if (this.planItems[firstItemIndex]) {
-              this.planCursor = { index: firstItemIndex, set: 1 };
-              this._applyItemToUI?.(this.planItems[firstItemIndex]);
-            }
-            this.updatePlanSetIndicator?.();
-            this.updateCurrentSetLabel?.();
-            if (this.planPaused) {
-              this._queuedPlanRun = () => this._runCurrentPlanBlock();
-            } else {
-              this._runCurrentPlanBlock();
-            }
-          } else {
-            // All groups complete
-            this._planFinish();
-          }
-          return;
-        }
-
-        if (result && result.type === "exercise") {
-          // Continue with next exercise in same round
-          if (this.planItems[result.itemIndex]) {
-            this.planCursor = { index: result.itemIndex, set: 1 };
-            this._applyItemToUI?.(this.planItems[result.itemIndex]);
-          }
-          this.updatePlanSetIndicator?.();
-          this.updateCurrentSetLabel?.();
-          if (this.planPaused) {
-            this._queuedPlanRun = () => this._runCurrentPlanBlock();
-          } else {
-            this._runCurrentPlanBlock();
-          }
-          return;
+        if (nextStep.action === "complete") {
+          // Group is complete - fall through to regular advancement
+          this.groupExecutionMode = false;
         }
       }
 

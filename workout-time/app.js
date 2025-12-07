@@ -192,8 +192,6 @@ class VitruvianApp {
 
     // Superset/Group execution logic
     this.supersetExecutor = null; // Will be initialized when planItems are loaded
-    this.currentGroupIndex = 0;
-    this.currentPhase = 'exercise'; // 'exercise' or 'rest'
     this.groupExecutionMode = false; // true when in grouped exercise mode
 
     this._hasPerformedInitialSync = false; // track if we've auto-synced once per session
@@ -9635,157 +9633,23 @@ class VitruvianApp {
    * Call this after this.planItems is set.
    */
   initializeGroupExecution() {
-    if (!window.SupersetExecutor || !this.planItems || this.planItems.length === 0) {
+    if (!window.SupersetExecutorV2 || !this.planItems || this.planItems.length === 0) {
       return;
     }
 
     // Initialize executor with planItems
-    this.supersetExecutor = new window.SupersetExecutor(this.planItems);
-    this.currentGroupIndex = 0;
-    this.currentPhase = "exercise";
+    this.supersetExecutor = new window.SupersetExecutorV2(this.planItems);
     this.groupExecutionMode = this.supersetExecutor.hasGroups();
 
     if (this.groupExecutionMode) {
-      const groupInfo = this.supersetExecutor.getGroupInfo(0);
       this.addLogEntry(
-        `Loaded group mode: ${groupInfo.exerciseCount} exercises, round ${groupInfo.currentRound}`,
+        `Group execution mode enabled: Processing grouped exercises with sequential execution`,
         "info",
       );
     }
   }
 
-  /**
-   * Navigate to next item using group execution logic if in group mode.
-   * Returns true if navigation was successful, false if at the end.
-   */
-  navigateToNextInGroup() {
-    if (!this.groupExecutionMode || !this.supersetExecutor) {
-      return false;
-    }
 
-    const result = this.supersetExecutor.navigateNext(
-      this.currentGroupIndex,
-      this.planCursor.index,
-      this.currentPhase,
-    );
-
-    if (!result) {
-      return false; // End of all groups
-    }
-
-    if (result.type === "rest") {
-      this.currentPhase = "rest";
-      const groupInfo = this.supersetExecutor.getGroupInfo(result.groupIndex);
-      this.addLogEntry(
-        `Rest between exercises - Round ${groupInfo.currentRound}`,
-        "info",
-      );
-      // TODO: Start rest countdown timer
-      return true;
-    }
-
-    if (result.type === "exercise" || result.type === "next_round") {
-      this.currentPhase = "exercise";
-      this.currentGroupIndex = result.groupIndex;
-      this.planCursor.index = result.itemIndex;
-      this.planTimelineIndex = result.itemIndex;
-      this.loadPlanItemIntoForm();
-      return true;
-    }
-
-    if (result.type === "complete") {
-      this.addLogEntry("All groups completed!", "success");
-      this.groupExecutionMode = false;
-      return false;
-    }
-
-    return false;
-  }
-
-  /**
-   * Navigate to previous item using group execution logic if in group mode.
-   * Returns true if navigation was successful, false if at the beginning.
-   */
-  navigateToPreviousInGroup() {
-    if (!this.groupExecutionMode || !this.supersetExecutor) {
-      return false;
-    }
-
-    const result = this.supersetExecutor.navigatePrevious(
-      this.currentGroupIndex,
-      this.planCursor.index,
-      this.currentPhase,
-    );
-
-    if (!result) {
-      return false; // Beginning of groups
-    }
-
-    if (result.type === "exercise") {
-      this.currentPhase = "exercise";
-      this.currentGroupIndex = result.groupIndex;
-      this.planCursor.index = result.itemIndex;
-      this.planTimelineIndex = result.itemIndex;
-      this.loadPlanItemIntoForm();
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Complete the current set in group execution mode.
-   * Handles progression through sets and rest periods.
-   */
-  completeCurrentSetInGroup() {
-    if (!this.groupExecutionMode || !this.supersetExecutor) {
-      return;
-    }
-
-    const result = this.supersetExecutor.completeSet(
-      this.currentGroupIndex,
-      this.planCursor.index,
-    );
-
-    if (!result) {
-      return; // No action needed
-    }
-
-    if (result.type === "rest") {
-      this.currentPhase = "rest";
-      const groupInfo = this.supersetExecutor.getGroupInfo(this.currentGroupIndex);
-      this.addLogEntry(
-        `Rest between exercises - Round ${groupInfo.currentRound}`,
-        "info",
-      );
-      // TODO: Start rest countdown timer
-    } else if (result.type === "next_round") {
-      this.currentPhase = "exercise";
-      this.addLogEntry(`Starting round ${result.nextRound}`, "info");
-      this.supersetExecutor.completeRest(this.currentGroupIndex);
-    } else if (result.type === "complete") {
-      this.addLogEntry("Group exercise completed!", "success");
-      this.currentPhase = "exercise";
-    }
-  }
-
-  /**
-   * Get the current group execution state for display.
-   */
-  getGroupExecutionState() {
-    if (!this.groupExecutionMode || !this.supersetExecutor) {
-      return null;
-    }
-
-    const groupInfo = this.supersetExecutor.getGroupInfo(this.currentGroupIndex);
-    return {
-      groupId: groupInfo.groupId,
-      exerciseCount: groupInfo.exerciseCount,
-      currentRound: groupInfo.currentRound,
-      itemsWithSets: groupInfo.itemsWithSets,
-      phase: this.currentPhase,
-    };
-  }
 
 }
 
