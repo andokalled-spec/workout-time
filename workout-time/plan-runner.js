@@ -68,6 +68,24 @@
     },
 
     _runCurrentPlanBlock: async function _runCurrentPlanBlock() {
+      try {
+        this.addLogEntry(
+          `DEBUG: _runCurrentPlanBlock start — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
+          "debug",
+        );
+        if (this.supersetExecutor && this.groupExecutionMode) {
+          try {
+            this.addLogEntry(
+              `DEBUG: Superset state: ${JSON.stringify(this.supersetExecutor.getState())}`,
+              "debug",
+            );
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      } catch (e) {
+        /* best-effort debug logging */
+      }
       if (!this.planActive) {
         return;
       }
@@ -138,6 +156,26 @@
     },
 
     _planAdvance: function _planAdvance(completion = {}) {
+      try {
+        this.addLogEntry(
+          `DEBUG: _planAdvance start — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)} reason=${String(
+            completion?.reason,
+          )}`,
+          "debug",
+        );
+        if (this.supersetExecutor && this.groupExecutionMode) {
+          try {
+            this.addLogEntry(
+              `DEBUG: Superset state (pre-advance): ${JSON.stringify(this.supersetExecutor.getState())}`,
+              "debug",
+            );
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      } catch (e) {
+        /* best-effort */
+      }
       if (!this.planActive) {
         return;
       }
@@ -160,16 +198,43 @@
           // Move to next exercise in group without rest
           const nextItem = this.planItems[nextStep.itemIndex];
           if (nextItem) {
-            this.planCursor = { index: nextStep.itemIndex, set: 1 };
+            const remaining = this.supersetExecutor.getRemainingSets(nextStep.itemIndex);
+            const totalSets = Math.max(1, Number(nextItem.sets) || 1);
+            const setToRun = Math.max(1, totalSets - remaining + 1);
+
+            // Find the corresponding timeline index for that item/set
+            let timelineIndex = this.planTimeline.findIndex(
+              (e) => e && e.itemIndex === nextStep.itemIndex && Number(e.set) === Number(setToRun),
+            );
+            if (timelineIndex === -1) {
+              // Fallback: find any timeline entry for the item
+              timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextStep.itemIndex);
+            }
+
+            if (timelineIndex !== -1) {
+              const prevIndex = this.planTimelineIndex;
+              this.planTimelineIndex = timelineIndex;
+              this.addLogEntry(
+                `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for next-exercise`,
+                "debug",
+              );
+            }
+
+            this.planCursor = { index: nextStep.itemIndex, set: setToRun };
             this._applyItemToUI?.(nextItem);
             this.updatePlanSetIndicator?.();
             this.updateCurrentSetLabel?.();
-            const remaining = this.supersetExecutor.getRemainingSets(nextStep.itemIndex);
             const nextLabel = nextItem.name || (nextItem.type === "exercise" ? "Exercise" : "Echo");
             this.addLogEntry(
               `→ ${nextLabel} (${remaining} set${remaining === 1 ? "" : "s"} remaining)`,
               "info",
             );
+            try {
+              this.addLogEntry(
+                `DEBUG: after next-exercise — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
+                "debug",
+              );
+            } catch (e) {}
             if (this.planPaused) {
               this._queuedPlanRun = () => this._runCurrentPlanBlock();
             } else {
@@ -190,11 +255,37 @@
 
           const runNext = () => {
             if (nextItem) {
-              this.planCursor = { index: nextStep.itemIndex, set: 1 };
+              const remaining = this.supersetExecutor.getRemainingSets(nextStep.itemIndex);
+              const totalSets = Math.max(1, Number(nextItem.sets) || 1);
+              const setToRun = Math.max(1, totalSets - remaining + 1);
+
+              // Find corresponding timeline index
+              let timelineIndex = this.planTimeline.findIndex(
+                (e) => e && e.itemIndex === nextStep.itemIndex && Number(e.set) === Number(setToRun),
+              );
+                if (timelineIndex === -1) {
+                  timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextStep.itemIndex);
+                }
+                if (timelineIndex !== -1) {
+                  const prevIndex = this.planTimelineIndex;
+                  this.planTimelineIndex = timelineIndex;
+                  this.addLogEntry(
+                    `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for rest-then-continue`,
+                    "debug",
+                  );
+                }
+
+              this.planCursor = { index: nextStep.itemIndex, set: setToRun };
               this._applyItemToUI?.(nextItem);
             }
             this.updatePlanSetIndicator?.();
             this.updateCurrentSetLabel?.();
+            try {
+              this.addLogEntry(
+                `DEBUG: after rest-then-continue — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
+                "debug",
+              );
+            } catch (e) {}
             if (this.planPaused) {
               this._queuedPlanRun = () => this._runCurrentPlanBlock();
             } else {

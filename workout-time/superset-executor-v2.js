@@ -232,3 +232,6 @@ class SupersetExecutorV2 {
 if (typeof window !== "undefined") {
   window.SupersetExecutorV2 = SupersetExecutorV2;
 }
+
+// Export for ESM/node tests
+export { SupersetExecutorV2 };
