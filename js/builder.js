@@ -3093,6 +3093,82 @@ const buildBuilderCard = (entry, displayIndex, options = {}) => {
   });
   header.append(title, meta);
 
+  // Superset Group control (exercise-level). Shows shared groupNumber across sets
+  const supersetWrapper = document.createElement('div');
+  supersetWrapper.className = 'builder-superset-group';
+  const supersetLabel = document.createElement('label');
+  supersetLabel.textContent = 'Superset Group:';
+  supersetLabel.className = 'superset-label';
+  const supersetInput = document.createElement('input');
+  supersetInput.type = 'text';
+  supersetInput.placeholder = 'e.g., 1, 2, 3';
+  // Tooltip text explaining sync with Workout Time tab
+  const tooltipText =
+    'This value syncs with the Workout Time tab\'s groupNumber. Editing here updates all sets and the workout-time groupNumber.';
+  supersetInput.setAttribute('aria-label', 'Superset Group (syncs with workout-time groupNumber)');
+
+  // Create a styled info icon and custom tooltip (replaces native title)
+  const infoBtn = document.createElement('button');
+  infoBtn.type = 'button';
+  infoBtn.className = 'info-icon';
+  infoBtn.setAttribute('aria-label', 'Superset Group info');
+  const tooltipId = `superset-tooltip-${Math.random().toString(36).slice(2)}`;
+  infoBtn.setAttribute('aria-describedby', tooltipId);
+  infoBtn.innerHTML = '<span aria-hidden="true">i</span>';
+
+  const tooltip = document.createElement('div');
+  tooltip.className = 'superset-tooltip hidden';
+  tooltip.id = tooltipId;
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.textContent = tooltipText;
+
+  const showTooltip = (ev) => {
+    tooltip.classList.remove('hidden');
+  };
+  const hideTooltip = (ev) => {
+    tooltip.classList.add('hidden');
+  };
+
+  infoBtn.addEventListener('mouseenter', showTooltip);
+  infoBtn.addEventListener('focus', showTooltip);
+  infoBtn.addEventListener('mouseleave', hideTooltip);
+  infoBtn.addEventListener('blur', hideTooltip);
+  infoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (tooltip.classList.contains('hidden')) showTooltip(); else hideTooltip();
+  });
+
+  // Determine shared group value across sets
+  const sharedGroup = (() => {
+    if (!Array.isArray(entry.sets) || entry.sets.length === 0) return '';
+    const first = entry.sets[0].groupNumber ?? '';
+    for (let i = 1; i < entry.sets.length; i += 1) {
+      if ((entry.sets[i].groupNumber ?? '') !== first) return '';
+    }
+    return first || '';
+  })();
+  supersetInput.value = sharedGroup;
+  supersetInput.addEventListener('input', () => {
+    // live update local value (no persist yet)
+  });
+  supersetInput.addEventListener('change', () => {
+    const finalValue = supersetInput.value;
+    // Propagate to all sets for this exercise
+    let updated = false;
+    entry.sets.forEach((s) => {
+      if ((s.groupNumber ?? '') !== finalValue) {
+        s.groupNumber = finalValue;
+        updated = true;
+      }
+    });
+    if (updated) {
+      persistState();
+      triggerRender();
+    }
+  });
+  supersetWrapper.append(supersetLabel, supersetInput, infoBtn, tooltip);
+  header.appendChild(supersetWrapper);
+
   const thumbUrl = entry.exercise.videos?.[0]?.thumbnail || entry.exercise.thumbnail || '';
   if (thumbUrl) {
     const preview = document.createElement('img');
