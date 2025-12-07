@@ -9550,6 +9550,125 @@ class VitruvianApp {
         }
         return item;
       });
+
+      // Heuristic inference: if some items already have groupNumber values, try to
+      // infer and fill missing groupNumber for items that are within the same
+      // contiguous span or share the same exercise id (builderMeta.exerciseIdNew).
+      let _inferredGroupAssignments = false;
+      const _inferredAssignmentsList = [];
+      try {
+        const presentGroups = Array.from(new Set(this.planItems.map((it) => it.groupNumber).filter(Boolean)));
+        if (presentGroups.length > 0) {
+          // Map group -> indices
+          const groupIndices = {};
+          presentGroups.forEach((g) => { groupIndices[g] = []; });
+          this.planItems.forEach((it, idx) => {
+            if (it.groupNumber) groupIndices[it.groupNumber].push(idx);
+          });
+
+          // For each group, attempt two inference passes:
+          // 1) fill gaps between min and max index of known group members
+          // 2) assign by matching builderMeta.exerciseIdNew where possible
+          presentGroups.forEach((g) => {
+            const idxs = groupIndices[g];
+            if (!idxs.length) return;
+            const minIdx = Math.min(...idxs);
+            const maxIdx = Math.max(...idxs);
+            for (let k = minIdx; k <= maxIdx; k++) {
+              const it = this.planItems[k];
+              if (it && !it.groupNumber) {
+                it.groupNumber = g;
+                _inferredGroupAssignments = true;
+                _inferredAssignmentsList.push({ index: k, name: it.name, group: g, reason: 'span' });
+                this.addLogEntry(`Inferred groupNumber='${g}' for item index ${k} (${it.name}) based on span of group`, 'debug');
+              }
+            }
+
+            // Collect exerciseIdNew values for this group
+            const ids = new Set(idxs.map((i) => this.planItems[i]?.builderMeta?.exerciseIdNew).filter(Boolean));
+            if (ids.size > 0) {
+              this.planItems.forEach((it, idx) => {
+                if (!it.groupNumber && it.builderMeta && ids.has(it.builderMeta.exerciseIdNew)) {
+                  it.groupNumber = g;
+                  _inferredGroupAssignments = true;
+                  _inferredAssignmentsList.push({ index: idx, name: it.name, group: g, reason: 'builderMeta' });
+                  this.addLogEntry(`Inferred groupNumber='${g}' for item index ${idx} (${it.name}) by matching builderMeta.exerciseIdNew`, 'debug');
+                }
+              });
+            }
+          });
+        }
+      } catch (e) {
+        /* best-effort inference; do not block load on errors */
+      }
+
+      // If we inferred any groupNumber values, persist them so future loads and
+      // the builder UI will see the assignments. This is a best-effort save and
+      // should not block the load flow.
+      if (_inferredGroupAssignments) {
+        // Decide whether to auto-persist inferred groups or ask the user.
+        const autoAccept = options?.autoAcceptInferred === true || typeof document === 'undefined' || !document.body || (function(){ try { return localStorage && localStorage.getItem && localStorage.getItem('vitruvian.autoAcceptInferredGroups') === '1'; } catch(e){ return false; } })();
+        if (autoAccept) {
+          try {
+            this.savePlanLocally(planName, this.planItems);
+            if (this.dropboxManager?.isConnected) {
+              this.syncPlanToDropbox(planName, this.planItems, { silent: true, suppressError: true });
+            }
+            this.addLogEntry(`Saved inferred group assignments for plan "${planName}".`, 'info');
+          } catch (err) {
+            this.addLogEntry(`Failed to persist inferred groups: ${err?.message || err}`, 'warn');
+          }
+        } else {
+          // Show a lightweight confirmation modal listing inferred assignments.
+          try {
+            if (window?.VTModal?.showConfirmationModal) {
+              const modalItems = _inferredAssignmentsList.map((a) => `#${a.index} ${a.name} → group "${a.group}" (${a.reason})`);
+              const res = await window.VTModal.showConfirmationModal({
+                title: 'Inferred group assignments',
+                description: 'The app detected and inferred group assignments for some plan items. Review and choose whether to save these changes.',
+                items: modalItems,
+                confirmText: 'Save changes',
+                cancelText: 'Cancel',
+                checkboxLabel: 'Always save inferred groups in future',
+              });
+              if (res.confirmed) {
+                try {
+                  this.savePlanLocally(planName, this.planItems);
+                  if (this.dropboxManager?.isConnected) {
+                    this.syncPlanToDropbox(planName, this.planItems, { silent: true, suppressError: true });
+                  }
+                  this.addLogEntry(`Saved inferred group assignments for plan "${planName}".`, 'info');
+                  if (res.always) {
+                    try { localStorage.setItem('vitruvian.autoAcceptInferredGroups', '1'); } catch(e){}
+                  }
+                } catch (err) {
+                  this.addLogEntry(`Failed to persist inferred groups: ${err?.message || err}`, 'warn');
+                }
+              } else {
+                this.addLogEntry('User cancelled saving inferred group assignments.', 'info');
+              }
+            } else {
+              // No modal helper available; fall back to auto-save
+              this.savePlanLocally(planName, this.planItems);
+              if (this.dropboxManager?.isConnected) {
+                this.syncPlanToDropbox(planName, this.planItems, { silent: true, suppressError: true });
+              }
+              this.addLogEntry(`Saved inferred group assignments for plan "${planName}".`, 'info');
+            }
+          } catch (err) {
+            // If rendering the modal or saving fails, fall back to auto-saving.
+            try {
+              this.savePlanLocally(planName, this.planItems);
+              if (this.dropboxManager?.isConnected) {
+                this.syncPlanToDropbox(planName, this.planItems, { silent: true, suppressError: true });
+              }
+              this.addLogEntry(`Saved inferred group assignments for plan "${planName}".`, 'info');
+            } catch (e) {
+              this.addLogEntry(`Failed to persist inferred groups: ${e?.message || e}`, 'warn');
+            }
+          }
+        }
+      }
       
       this._loadedPlanName = planName;
       this._preferredPlanSelection = planName;
@@ -9597,6 +9716,13 @@ class VitruvianApp {
         alert(`Could not load plan: ${e.message}`);
       }
     }
+  }
+
+  showInferredGroupConfirmation(planName, assignments) {
+    // Delegated to shared modal helper; left as no-op for backward compatibility
+    // The actual modal is implemented in `shared/ui-modal.js` and exposed as
+    // `window.VTModal.showConfirmationModal` which `loadSelectedPlan` calls.
+    return;
   }
 
   async deleteSelectedPlan() {
