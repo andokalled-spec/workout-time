@@ -212,11 +212,37 @@
             }
 
             if (timelineIndex !== -1) {
+              // Before jumping, check if there are any non-grouped items in the timeline
+              // between our current position and the target. If so, execute them first.
+              let hasNonGroupedItemsInBetween = false;
+              const minIdx = Math.min(this.planTimelineIndex, timelineIndex);
+              const maxIdx = Math.max(this.planTimelineIndex, timelineIndex);
+              for (let i = minIdx + 1; i < maxIdx; i++) {
+                const te = this.planTimeline[i];
+                if (te && !this.supersetExecutor.isGrouped(te.itemIndex)) {
+                  hasNonGroupedItemsInBetween = true;
+                  // Move to the non-grouped item instead
+                  this.planTimelineIndex = i - 1;
+                  this.addLogEntry(
+                    `DEBUG: found non-grouped item at ti=${i}, stopping before it instead of jumping to ti=${timelineIndex}`,
+                    'debug',
+                  );
+                  this.groupExecutionMode = false;
+                  if (this.planPaused) {
+                    this._queuedPlanRun = () => this._runCurrentPlanBlock();
+                  } else {
+                    this._runCurrentPlanBlock();
+                  }
+                  return;
+                }
+              }
+
+              // No non-grouped items in between, proceed with the jump
               const prevIndex = this.planTimelineIndex;
               this.planTimelineIndex = timelineIndex;
               this.addLogEntry(
                 `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for next-exercise`,
-                "debug",
+                'debug',
               );
             }
 
@@ -227,12 +253,12 @@
             const nextLabel = nextItem.name || (nextItem.type === "exercise" ? "Exercise" : "Echo");
             this.addLogEntry(
               `→ ${nextLabel} (${remaining} set${remaining === 1 ? "" : "s"} remaining)`,
-              "info",
+              'info',
             );
             try {
               this.addLogEntry(
                 `DEBUG: after next-exercise — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
-                "debug",
+                'debug',
               );
             } catch (e) {}
             if (this.planPaused) {
@@ -263,17 +289,43 @@
               let timelineIndex = this.planTimeline.findIndex(
                 (e) => e && e.itemIndex === nextStep.itemIndex && Number(e.set) === Number(setToRun),
               );
-                if (timelineIndex === -1) {
-                  timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextStep.itemIndex);
+              if (timelineIndex === -1) {
+                timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextStep.itemIndex);
+              }
+
+              // Before jumping, check if there are non-grouped items in between
+              if (timelineIndex !== -1) {
+                let hasNonGroupedItemsInBetween = false;
+                const minIdx = Math.min(this.planTimelineIndex, timelineIndex);
+                const maxIdx = Math.max(this.planTimelineIndex, timelineIndex);
+                for (let i = minIdx + 1; i < maxIdx; i++) {
+                  const te = this.planTimeline[i];
+                  if (te && !this.supersetExecutor.isGrouped(te.itemIndex)) {
+                    hasNonGroupedItemsInBetween = true;
+                    // Skip the rest and process the non-grouped item first
+                    this.planTimelineIndex = i - 1;
+                    this.groupExecutionMode = false;
+                    this.addLogEntry(
+                      `DEBUG: found non-grouped item at ti=${i} during rest, stopping before it`,
+                      'debug',
+                    );
+                    if (this.planPaused) {
+                      this._queuedPlanRun = () => this._runCurrentPlanBlock();
+                    } else {
+                      this._runCurrentPlanBlock();
+                    }
+                    return;
+                  }
                 }
-                if (timelineIndex !== -1) {
-                  const prevIndex = this.planTimelineIndex;
-                  this.planTimelineIndex = timelineIndex;
-                  this.addLogEntry(
-                    `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for rest-then-continue`,
-                    "debug",
-                  );
-                }
+
+                // No non-grouped items in between, proceed normally
+                const prevIndex = this.planTimelineIndex;
+                this.planTimelineIndex = timelineIndex;
+                this.addLogEntry(
+                  `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for rest-then-continue`,
+                  'debug',
+                );
+              }
 
               this.planCursor = { index: nextStep.itemIndex, set: setToRun };
               this._applyItemToUI?.(nextItem);
@@ -283,7 +335,7 @@
             try {
               this.addLogEntry(
                 `DEBUG: after rest-then-continue — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
-                "debug",
+                'debug',
               );
             } catch (e) {}
             if (this.planPaused) {
@@ -308,24 +360,46 @@
         }
 
         if (nextStep.action === "complete") {
-          // Group is complete - ensure timeline index moves to after the group's
-          // last timeline entry so regular advancement resumes correctly.
+          // Group is complete. Before moving to the next group, check if there
+          // are any non-grouped items in the timeline that come after this group
+          // but before the next group starts. If so, we need to execute them first.
           try {
             const group = this.supersetExecutor.findGroupForItem(currentItemIndex);
             if (group && Array.isArray(group.items) && group.items.length) {
               const groupItemSet = new Set(group.items.map((it) => it.index));
               let lastTimelineIdx = -1;
+
+              // Find the last timeline entry of the current group
               for (let i = 0; i < this.planTimeline.length; i++) {
                 const te = this.planTimeline[i];
                 if (te && groupItemSet.has(te.itemIndex)) {
                   lastTimelineIdx = i;
                 }
               }
+
+              // Scan ahead to find non-grouped items between this group and the next group
+              let hasNonGroupedItemsAhead = false;
+              if (lastTimelineIdx >= 0 && lastTimelineIdx + 1 < this.planTimeline.length) {
+                for (let i = lastTimelineIdx + 1; i < this.planTimeline.length; i++) {
+                  const te = this.planTimeline[i];
+                  if (te) {
+                    const isGrouped = this.supersetExecutor.isGrouped(te.itemIndex);
+                    if (!isGrouped) {
+                      // Found a non-grouped item before the next group
+                      hasNonGroupedItemsAhead = true;
+                      break;
+                    } else {
+                      // Found the next grouped item, stop scanning
+                      break;
+                    }
+                  }
+                }
+              }
+
               if (lastTimelineIdx >= 0) {
-                const prev = this.planTimelineIndex;
                 this.planTimelineIndex = lastTimelineIdx;
                 this.addLogEntry(
-                  `DEBUG: group complete — moved planTimelineIndex ${prev} → ${this.planTimelineIndex} (group last entry)`,
+                  `DEBUG: group complete — planTimelineIndex set to ${this.planTimelineIndex} (hasNonGroupedAhead=${hasNonGroupedItemsAhead})`,
                   'debug',
                 );
               }
@@ -349,18 +423,20 @@
       const upcomingEntry = this.planTimeline[this.planTimelineIndex];
       const upcomingItem = upcomingEntry ? this.planItems[upcomingEntry.itemIndex] : null;
 
-      // If the upcoming item is part of a group, re-enable group execution mode
+      // Determine if the upcoming item should be executed in group mode or not
+      // Always execute non-grouped items in non-group mode, even if groupExecutionMode is on
       if (upcomingItem && this.supersetExecutor) {
         try {
-          const upcomingIsGrouped = this.supersetExecutor.isGrouped(upcomingEntry.itemIndex);
+          const upcomingIsGrouped = this.supersetExecutor.isGrouped(
+            upcomingEntry.itemIndex,
+          );
+          this.groupExecutionMode = upcomingIsGrouped;
           if (upcomingIsGrouped) {
-            this.groupExecutionMode = true;
             this.addLogEntry(
-              `DEBUG: upcoming item is grouped — re-enabling groupExecutionMode`,
+              `DEBUG: upcoming item is grouped — enabling groupExecutionMode`,
               'debug',
             );
           } else {
-            this.groupExecutionMode = false;
             this.addLogEntry(
               `DEBUG: upcoming item is not grouped — disabling groupExecutionMode`,
               'debug',
