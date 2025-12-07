@@ -415,11 +415,35 @@ const handleSavePlanLocally = () => {
 
   const planItems = clonePlanItems(items);
   let savedName = null;
+  let groupValidation = null;
   try {
-    ({ name: savedName } = persistPlanLocally(desiredName, planItems));
+    ({ name: savedName, groupValidation } = persistPlanLocally(
+      desiredName,
+      planItems,
+    ));
   } catch (error) {
     updateSyncStatus(error.message || 'Failed to save plan.', 'error');
     return;
+  }
+
+  // Show group validation warning if there are issues
+  if (groupValidation && !groupValidation.isValid) {
+    const warningMessage = groupValidation.issues
+      .map(
+        (issue) =>
+          `⚠️ Group ${issue.groupId}: ${issue.message} (Timeline indices ${issue.details.span})`,
+      )
+      .join('\n');
+    updateSyncStatus(
+      `Plan saved, but: ${warningMessage}`,
+      'warning',
+    );
+    console.warn('Group configuration issues in saved plan:', groupValidation);
+  } else {
+    updateSyncStatus(
+      `Plan saved: ${savedName}`,
+      'success',
+    );
   }
 
   const finalName = savedName || normalizePlanName(desiredName);
@@ -461,17 +485,32 @@ const handleRenamePlan = async () => {
   const existingSnapshot = existingEntry
     ? {
         source: existingEntry.source,
-        items: clonePlanItems(existingEntry.items || [])
+        items: clonePlanItems(existingEntry.items || []),
       }
     : null;
   const wasDropbox = existingEntry?.source === 'dropbox';
 
   let savedName = null;
+  let groupValidation = null;
   try {
-    ({ name: savedName } = persistPlanLocally(desiredName, planItems));
+    ({ name: savedName, groupValidation } = persistPlanLocally(
+      desiredName,
+      planItems,
+    ));
   } catch (error) {
     updateSyncStatus(error.message || 'Failed to create renamed plan.', 'error');
     return;
+  }
+
+  // Show group validation warning if there are issues
+  if (groupValidation && !groupValidation.isValid) {
+    const warningMessage = groupValidation.issues
+      .map(
+        (issue) =>
+          `⚠️ Group ${issue.groupId}: ${issue.message} (Timeline indices ${issue.details.span})`,
+      )
+      .join('\n');
+    console.warn('Group configuration issues in renamed plan:', groupValidation);
   }
 
   const finalName = savedName || normalizePlanName(desiredName);

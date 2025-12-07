@@ -2,6 +2,8 @@
 // Encapsulates localStorage access, input normalization, and error handling
 // so that the rest of the app can reason about plain JS data structures.
 
+import { validateGroupConfiguration } from './group-validation.js';
+
 export const PLAN_INDEX_KEY = 'vitruvian.plans.index';
 export const PLAN_STORAGE_PREFIX = 'vitruvian.plan.';
 
@@ -78,14 +80,35 @@ export const persistPlanLocally = (name, items, storage = getStorage()) => {
   if (!target) {
     throw new Error('Local storage is unavailable in this environment.');
   }
+
+  // Validate group configuration
+  const groupValidation = validateGroupConfiguration(items);
+  if (!groupValidation.isValid) {
+    // Log warning to console but don't block saving
+    console.warn(
+      'Group configuration warning:',
+      groupValidation.issues.map((issue) => ({
+        groupId: issue.groupId,
+        message: issue.message,
+        details: issue.details,
+      })),
+    );
+  }
+
   try {
-    target.setItem(`${PLAN_STORAGE_PREFIX}${trimmed}`, JSON.stringify(Array.isArray(items) ? items : []));
+    target.setItem(
+      `${PLAN_STORAGE_PREFIX}${trimmed}`,
+      JSON.stringify(Array.isArray(items) ? items : []),
+    );
   } catch (error) {
     console.warn('Failed to store plan locally', error);
     throw new Error('Unable to store plan in local storage.');
   }
-  const updated = writeLocalPlanIndex([...readLocalPlanIndex(target), trimmed], target);
-  return { name: trimmed, index: updated };
+  const updated = writeLocalPlanIndex(
+    [...readLocalPlanIndex(target), trimmed],
+    target,
+  );
+  return { name: trimmed, index: updated, groupValidation };
 };
 
 export const removePlanLocally = (name, storage = getStorage()) => {
