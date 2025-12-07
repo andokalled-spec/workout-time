@@ -9542,6 +9542,15 @@ class VitruvianApp {
         );
       }
       this.planItems = Array.isArray(parsed) ? parsed : [];
+      
+      // Normalize: ensure all items have groupNumber field (for backwards compatibility)
+      this.planItems = this.planItems.map((item) => {
+        if (!item.hasOwnProperty('groupNumber')) {
+          item.groupNumber = '';
+        }
+        return item;
+      });
+      
       this._loadedPlanName = planName;
       this._preferredPlanSelection = planName;
       this.syncPlanNameInputTo(planName);
