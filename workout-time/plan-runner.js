@@ -28,6 +28,7 @@
       this.initializePlanSummary?.();
 
       this.planActive = true;
+      this.initializeGroupExecution();
       this.planTimeline = timeline;
       this.planTimelineIndex = 0;
       this._activePlanEntry = null;
@@ -150,6 +151,130 @@
         return;
       }
 
+      // If group execution is enabled, use group-based advancement
+      if (this.groupExecutionMode && this.supersetExecutor) {
+        const currentItemIndex = this.planCursor.index;
+        const result = this.supersetExecutor.completeSet(
+          this.currentGroupIndex,
+          currentItemIndex,
+        );
+
+        if (result && result.type === "rest") {
+          // Rest period - show rest countdown then continue
+          const groupInfo = this.supersetExecutor.getGroupInfo(result.groupIndex);
+          const upcomingItem = this.planItems[result.itemIndex];
+          const nextLabel =
+            upcomingItem?.name || (upcomingItem?.type === "exercise" ? "Exercise" : "Echo Mode");
+          const nextSummary = upcomingItem ? this.describePlanItem(upcomingItem) : "";
+          const restDuration = completedEntry?.restSec || 60; // Default to 60s for rest between exercises
+
+          const runNext = () => {
+            // After rest, move to next exercise
+            if (this.planItems[result.itemIndex]) {
+              this.planCursor = { index: result.itemIndex, set: 1 };
+              this._applyItemToUI?.(this.planItems[result.itemIndex]);
+            }
+            this.updatePlanSetIndicator?.();
+            this.updateCurrentSetLabel?.();
+            if (this.planPaused) {
+              this._queuedPlanRun = () => this._runCurrentPlanBlock();
+            } else {
+              this._runCurrentPlanBlock();
+            }
+          };
+
+          this.addLogEntry(
+            `Rest between exercises (Round ${groupInfo.currentRound}) → ${nextLabel}`,
+            "info",
+          );
+          this._beginRest(
+            restDuration,
+            runNext,
+            `Next: ${nextLabel}`,
+            nextSummary,
+            upcomingItem,
+          );
+          return;
+        }
+
+        if (result && result.type === "next_round") {
+          // Moving to next round - show rest countdown
+          const groupInfo = this.supersetExecutor.getGroupInfo(result.groupIndex);
+          const upcomingItem = this.planItems[result.itemIndex];
+          const nextLabel =
+            upcomingItem?.name || (upcomingItem?.type === "exercise" ? "Exercise" : "Echo Mode");
+          const nextSummary = upcomingItem ? this.describePlanItem(upcomingItem) : "";
+          const restDuration = 120; // Rest between rounds
+
+          const runNext = () => {
+            // After rest, move to first exercise of next round
+            if (this.planItems[result.itemIndex]) {
+              this.planCursor = { index: result.itemIndex, set: 1 };
+              this._applyItemToUI?.(this.planItems[result.itemIndex]);
+            }
+            this.updatePlanSetIndicator?.();
+            this.updateCurrentSetLabel?.();
+            if (this.planPaused) {
+              this._queuedPlanRun = () => this._runCurrentPlanBlock();
+            } else {
+              this._runCurrentPlanBlock();
+            }
+          };
+
+          this.addLogEntry(
+            `Starting Round ${groupInfo.currentRound} → ${nextLabel}`,
+            "info",
+          );
+          this._beginRest(restDuration, runNext, `Round ${groupInfo.currentRound}`, nextSummary, upcomingItem);
+          return;
+        }
+
+        if (result && result.type === "complete") {
+          // Group is complete - move to next group
+          const nextGroupIndex = this.currentGroupIndex + 1;
+          const nextGroup = this.supersetExecutor.groups[nextGroupIndex];
+
+          if (nextGroup) {
+            // More groups to do
+            this.currentGroupIndex = nextGroupIndex;
+            this.supersetExecutor.initializeGroupRounds(nextGroupIndex);
+            const firstItemIndex = nextGroup.items[0].index;
+            if (this.planItems[firstItemIndex]) {
+              this.planCursor = { index: firstItemIndex, set: 1 };
+              this._applyItemToUI?.(this.planItems[firstItemIndex]);
+            }
+            this.updatePlanSetIndicator?.();
+            this.updateCurrentSetLabel?.();
+            if (this.planPaused) {
+              this._queuedPlanRun = () => this._runCurrentPlanBlock();
+            } else {
+              this._runCurrentPlanBlock();
+            }
+          } else {
+            // All groups complete
+            this._planFinish();
+          }
+          return;
+        }
+
+        if (result && result.type === "exercise") {
+          // Continue with next exercise in same round
+          if (this.planItems[result.itemIndex]) {
+            this.planCursor = { index: result.itemIndex, set: 1 };
+            this._applyItemToUI?.(this.planItems[result.itemIndex]);
+          }
+          this.updatePlanSetIndicator?.();
+          this.updateCurrentSetLabel?.();
+          if (this.planPaused) {
+            this._queuedPlanRun = () => this._runCurrentPlanBlock();
+          } else {
+            this._runCurrentPlanBlock();
+          }
+          return;
+        }
+      }
+
+      // Default timeline-based advancement (non-group mode)
       this.planTimelineIndex += 1;
 
       if (!Array.isArray(this.planTimeline) || this.planTimelineIndex >= this.planTimeline.length) {
