@@ -333,8 +333,8 @@
           } catch (err) {
             /* best-effort — don't block */
           }
-          // Disable group mode so default advancement resumes
-          this.groupExecutionMode = false;
+          // Do NOT disable group mode yet; check if next item is in another group
+          // Default advancement will re-enable if needed
         }
       }
 
@@ -348,6 +348,28 @@
 
       const upcomingEntry = this.planTimeline[this.planTimelineIndex];
       const upcomingItem = upcomingEntry ? this.planItems[upcomingEntry.itemIndex] : null;
+
+      // If the upcoming item is part of a group, re-enable group execution mode
+      if (upcomingItem && this.supersetExecutor) {
+        try {
+          const upcomingIsGrouped = this.supersetExecutor.isGrouped(upcomingEntry.itemIndex);
+          if (upcomingIsGrouped) {
+            this.groupExecutionMode = true;
+            this.addLogEntry(
+              `DEBUG: upcoming item is grouped — re-enabling groupExecutionMode`,
+              'debug',
+            );
+          } else {
+            this.groupExecutionMode = false;
+            this.addLogEntry(
+              `DEBUG: upcoming item is not grouped — disabling groupExecutionMode`,
+              'debug',
+            );
+          }
+        } catch (err) {
+          this.groupExecutionMode = false;
+        }
+      }
       const viewUpcoming =
         upcomingEntry && upcomingItem && upcomingEntry.overrides
           ? { ...upcomingItem, ...upcomingEntry.overrides }
