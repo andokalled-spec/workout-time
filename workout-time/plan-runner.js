@@ -45,9 +45,6 @@
       this.planOnWorkoutComplete = (completion = {}) =>
         this._planAdvance(completion);
 
-      // Debug toggle: set `app._planRunnerDebug = true` in console to enable extra logs
-      this._planRunnerDebug = this._planRunnerDebug || false;
-
       this._clearRestState({ signalDone: false });
       this.stopPlanElapsedTicker();
       this.startPlanElapsedTicker();
@@ -160,17 +157,18 @@
 
     _planAdvance: function _planAdvance(completion = {}) {
       try {
-        const dbgMsg = `DEBUG: _planAdvance start — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(
-          this.planCursor,
-        )} reason=${String(completion?.reason)}`;
-        this.addLogEntry(dbgMsg, "debug");
-        if (this._planRunnerDebug) console.debug(dbgMsg);
-
+        this.addLogEntry(
+          `DEBUG: _planAdvance start — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)} reason=${String(
+            completion?.reason,
+          )}`,
+          "debug",
+        );
         if (this.supersetExecutor && this.groupExecutionMode) {
           try {
-            const stateMsg = `DEBUG: Superset state (pre-advance): ${JSON.stringify(this.supersetExecutor.getState())}`;
-            this.addLogEntry(stateMsg, "debug");
-            if (this._planRunnerDebug) console.debug(stateMsg);
+            this.addLogEntry(
+              `DEBUG: Superset state (pre-advance): ${JSON.stringify(this.supersetExecutor.getState())}`,
+              "debug",
+            );
           } catch (e) {
             /* ignore */
           }
@@ -191,217 +189,52 @@
         return;
       }
 
-      // Mark the just-completed set in the executor
-      if (this.supersetExecutor && this.planCursor) {
-        this.supersetExecutor.completeSet(this.planCursor.index);
-        if (this._planRunnerDebug) console.debug(`Marked complete: itemIndex=${this.planCursor.index}`);
-      }
+      // If group execution is enabled, use group-based advancement
+      if (this.groupExecutionMode && this.supersetExecutor) {
+        const currentItemIndex = this.planCursor.index;
+        const nextStep = this.supersetExecutor.getNextExercise(currentItemIndex);
 
-      // Record the just-completed exercise as the last executed within the active group
-      // so that rest-between-rounds uses that exercise's `restSec`.
-      if (this._currentGroupNumber && this.planCursor && Array.isArray(this._currentGroupExercises)) {
-        const justCompletedIdx = this.planCursor.index;
-        if (justCompletedIdx !== null && this._currentGroupExercises.indexOf(justCompletedIdx) !== -1) {
-          this._lastExerciseInGroupIndex = justCompletedIdx;
-          if (this._planRunnerDebug) console.debug(`Set lastExerciseInGroupIndex=${justCompletedIdx}`);
-        } else {
-          if (this._planRunnerDebug) console.debug(`Just-completed item ${justCompletedIdx} not in current group`);
-        }
-      }
-
-      // Immediately check executor for the next action and handle it. This makes
-      // progression more resilient in the app where the callback timing can vary.
-      if (this.supersetExecutor) {
-        try {
-          const immediate = this.supersetExecutor.getNextAction();
-          if (immediate && immediate.action) {
-            if (this._planRunnerDebug) console.debug('Immediate nextAction from executor:', immediate);
-            // Handle immediate single-exercise start
-            if (immediate.action === 'exercise-start') {
-              const nextItem = this.planItems[immediate.exerciseIndex];
-              if (nextItem) {
-                let timelineIndex = this.planTimeline.findIndex(
-                  (e) => e && e.itemIndex === immediate.exerciseIndex && Number(e.set) === Number(immediate.setNumber),
-                );
-                if (timelineIndex === -1) timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === immediate.exerciseIndex);
-                if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
-                this.planCursor = { index: immediate.exerciseIndex, set: immediate.setNumber };
-                this._applyItemToUI?.(nextItem);
-                this.updatePlanSetIndicator?.();
-                this.updateCurrentSetLabel?.();
-                if (this.planPaused) {
-                  this._queuedPlanRun = () => this._runCurrentPlanBlock();
-                } else {
-                  this._runCurrentPlanBlock();
-                }
-                return;
-              }
-            }
-
-            // Handle immediate group start (only if no active group is already set)
-            if (immediate.action === 'group-superset-start' && !this._currentGroupNumber) {
-              const groupNumber = immediate.groupNumber;
-              const groupExercises = Array.isArray(immediate.groupExercises) ? immediate.groupExercises.map((e) => e.index) : [];
-              const startIndex = Number.isFinite(immediate.currentExerciseIndex) ? immediate.currentExerciseIndex : (groupExercises[0] || null);
-              const startItem = this.planItems[startIndex];
-              if (startItem) {
-                this._currentGroupNumber = groupNumber;
-                this._currentGroupExercises = groupExercises;
-                this._lastExerciseInGroupIndex = null;
-                let timelineIndex = this.planTimeline.findIndex(
-                  (e) => e && e.itemIndex === startIndex && Number(e.set) === Number(this.supersetExecutor.getCompletedSets(startIndex) + 1),
-                );
-                if (timelineIndex === -1) timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === startIndex);
-                if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
-                this.planCursor = { index: startIndex, set: this.supersetExecutor.getCompletedSets(startIndex) + 1 };
-                this._applyItemToUI?.(startItem);
-                this.updatePlanSetIndicator?.();
-                this.updateCurrentSetLabel?.();
-                const groupLabel = (immediate.groupExercises || []).map((e) => this.planItems[e.index]?.name || 'Exercise').join(' + ');
-                this.addLogEntry(`Starting superset: ${groupLabel}`, 'info');
-                this._lastExerciseInGroupIndex = startIndex;
-                if (this.planPaused) {
-                  this._queuedPlanRun = () => this._runCurrentPlanBlock();
-                } else {
-                  this._runCurrentPlanBlock();
-                }
-                return;
-              }
-            }
-
-            if (immediate.action === 'complete') {
-              this._planFinish();
-              return;
-            }
-          }
-        } catch (err) {
-          if (this._planRunnerDebug) console.error('Error while handling immediate nextAction', err);
-        }
-      }
-
-      // HANDLE active group continuation first (if a group is already in progress)
-      if (this.supersetExecutor && this._currentGroupNumber) {
-        try {
-          const groupAction = this.supersetExecutor.getNextGroupAction(this._currentGroupNumber);
-          if (groupAction.action === 'next-exercise-in-group') {
-            const nextIdx = groupAction.exerciseIndex;
-            // Determine order positions to detect round wrap
-            const groupOrder = Array.isArray(this._currentGroupExercises) ? this._currentGroupExercises : [];
-            const lastIdx = this._lastExerciseInGroupIndex;
-            const posLast = lastIdx !== null && lastIdx !== undefined ? groupOrder.indexOf(lastIdx) : -1;
-            const posNext = groupOrder.indexOf(nextIdx);
-
-            // If next position is before or equal to last position, we've wrapped (round complete)
-            const wrapped = posNext <= posLast && posLast !== -1;
-
-            if (wrapped) {
-              // End of round: determine rest or completion
-              const roundResult = this.supersetExecutor.completeGroupRound(lastIdx, this._currentGroupNumber);
-              if (this._planRunnerDebug) console.debug('Round wrapped; completeGroupRound ->', roundResult);
-              if (roundResult.action === 'rest-then-continue') {
-                const restSeconds = roundResult.restSeconds || 60;
-                const runNext = () => {
-                  // Continue at the specified exerciseIndex
-                  const targetIdx = roundResult.exerciseIndex ?? nextIdx;
-                  const targetItem = this.planItems[targetIdx];
-                  if (targetItem) {
-                    let timelineIndex = this.planTimeline.findIndex(
-                      (e) => e && e.itemIndex === targetIdx && Number(e.set) === Number(this.supersetExecutor.getCompletedSets(targetIdx) + 1),
-                    );
-                    if (timelineIndex === -1) {
-                      timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === targetIdx);
-                    }
-                    if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
-                    this.planCursor = { index: targetIdx, set: this.supersetExecutor.getCompletedSets(targetIdx) + 1 };
-                    this._applyItemToUI?.(targetItem);
-                    this.updatePlanSetIndicator?.();
-                    this.updateCurrentSetLabel?.();
-                    if (this.planPaused) {
-                      this._queuedPlanRun = () => this._runCurrentPlanBlock();
-                    } else {
-                      this._runCurrentPlanBlock();
-                    }
-                  }
-                };
-                const nextLabel = this.planItems[roundResult.exerciseIndex]?.name || 'Exercise';
-                const nextSummary = this.describePlanItem(this.planItems[roundResult.exerciseIndex]) || '';
-                this.addLogEntry(`Rest ${restSeconds}s between group rounds → ${nextLabel}`, 'info');
-                if (this._planRunnerDebug) console.debug(`Scheduling rest ${restSeconds}s -> nextIdx=${roundResult.exerciseIndex}`);
-                this._beginRest(restSeconds, runNext, `Next: ${nextLabel}`, nextSummary, this.planItems[roundResult.exerciseIndex]);
-                return;
-              }
-              if (roundResult.action === 'group-complete') {
-                // Group finished — clear active group and fall through to top-level progression
-                this._currentGroupNumber = null;
-                this._currentGroupExercises = null;
-                this._lastExerciseInGroupIndex = null;
-              }
-            }
-
-            // No wrap or group still active — jump to next exercise in group
-            const nextItem = this.planItems[nextIdx];
-            if (nextItem) {
-              let timelineIndex = this.planTimeline.findIndex(
-                (e) => e && e.itemIndex === nextIdx && Number(e.set) === Number(groupAction.setNumber),
-              );
-              if (timelineIndex === -1) {
-                timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextIdx);
-              }
-              if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
-              this.planCursor = { index: nextIdx, set: groupAction.setNumber };
-              this._applyItemToUI?.(nextItem);
-              this.updatePlanSetIndicator?.();
-              this.updateCurrentSetLabel?.();
-              // track last executed within group
-              this._lastExerciseInGroupIndex = nextIdx;
-              if (this.planPaused) {
-                this._queuedPlanRun = () => this._runCurrentPlanBlock();
-              } else {
-                this._runCurrentPlanBlock();
-              }
-            }
-            return;
-          }
-          if (groupAction.action === 'group-complete') {
-            // Group finished normally
-            this._currentGroupNumber = null;
-            this._currentGroupExercises = null;
-            this._lastExerciseInGroupIndex = null;
-            // fall through to top-level nextAction below
-          }
-        } catch (err) {
-          // If group continuation fails, clear state and continue
-          this._currentGroupNumber = null;
-          this._currentGroupExercises = null;
-          this._lastExerciseInGroupIndex = null;
-        }
-      }
-
-      // Get next top-level action from V3 executor
-      if (this.supersetExecutor) {
-        const nextAction = this.supersetExecutor.getNextAction();
-
-        if (nextAction.action === 'exercise-start') {
-          // Single ungrouped exercise
-          const nextItem = this.planItems[nextAction.exerciseIndex];
+        if (nextStep.action === "next-exercise") {
+          // Move to next exercise in group without rest
+          const nextItem = this.planItems[nextStep.itemIndex];
           if (nextItem) {
-            // Find timeline index for this exercise/set
+            const remaining = this.supersetExecutor.getRemainingSets(nextStep.itemIndex);
+            const totalSets = Math.max(1, Number(nextItem.sets) || 1);
+            const setToRun = Math.max(1, totalSets - remaining + 1);
+
+            // Find the corresponding timeline index for that item/set
             let timelineIndex = this.planTimeline.findIndex(
-              (e) => e && e.itemIndex === nextAction.exerciseIndex && Number(e.set) === Number(nextAction.setNumber),
+              (e) => e && e.itemIndex === nextStep.itemIndex && Number(e.set) === Number(setToRun),
             );
             if (timelineIndex === -1) {
-              timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextAction.exerciseIndex);
+              // Fallback: find any timeline entry for the item
+              timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextStep.itemIndex);
             }
 
             if (timelineIndex !== -1) {
+              const prevIndex = this.planTimelineIndex;
               this.planTimelineIndex = timelineIndex;
+              this.addLogEntry(
+                `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for next-exercise`,
+                "debug",
+              );
             }
 
-            this.planCursor = { index: nextAction.exerciseIndex, set: nextAction.setNumber };
+            this.planCursor = { index: nextStep.itemIndex, set: setToRun };
             this._applyItemToUI?.(nextItem);
             this.updatePlanSetIndicator?.();
             this.updateCurrentSetLabel?.();
-
+            const nextLabel = nextItem.name || (nextItem.type === "exercise" ? "Exercise" : "Echo");
+            this.addLogEntry(
+              `→ ${nextLabel} (${remaining} set${remaining === 1 ? "" : "s"} remaining)`,
+              "info",
+            );
+            try {
+              this.addLogEntry(
+                `DEBUG: after next-exercise — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
+                "debug",
+              );
+            } catch (e) {}
             if (this.planPaused) {
               this._queuedPlanRun = () => this._runCurrentPlanBlock();
             } else {
@@ -411,59 +244,101 @@
           return;
         }
 
-        if (nextAction.action === 'group-superset-start') {
-          // Start a new superset group (atomic unit)
-          const groupNumber = nextAction.groupNumber;
-          const groupExercises = Array.isArray(nextAction.groupExercises) ? nextAction.groupExercises.map((e) => e.index) : [];
-          // Determine start index (executor provided currentExerciseIndex)
-          const startIndex = Number.isFinite(nextAction.currentExerciseIndex) ? nextAction.currentExerciseIndex : (groupExercises[0] || null);
-          const startItem = this.planItems[startIndex];
+        if (nextStep.action === "rest-then-continue") {
+          // Rest, then continue to next round
+          const nextItem = this.planItems[nextStep.itemIndex];
+          const restItem = this.planItems[nextStep.restAfter];
+          const nextLabel =
+            nextItem?.name || (nextItem?.type === "exercise" ? "Exercise" : "Echo");
+          const nextSummary = nextItem ? this.describePlanItem(nextItem) : "";
+          const restDuration = restItem?.restSec || 60;
 
-          if (startItem) {
-            // Persist active group metadata on runner
-            this._currentGroupNumber = groupNumber;
-            this._currentGroupExercises = groupExercises;
-            this._lastExerciseInGroupIndex = null;
+          const runNext = () => {
+            if (nextItem) {
+              const remaining = this.supersetExecutor.getRemainingSets(nextStep.itemIndex);
+              const totalSets = Math.max(1, Number(nextItem.sets) || 1);
+              const setToRun = Math.max(1, totalSets - remaining + 1);
 
-            // Find timeline index for the start exercise/set
-            let timelineIndex = this.planTimeline.findIndex(
-              (e) => e && e.itemIndex === startIndex && Number(e.set) === Number(this.supersetExecutor.getCompletedSets(startIndex) + 1),
-            );
-            if (timelineIndex === -1) {
-              timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === startIndex);
+              // Find corresponding timeline index
+              let timelineIndex = this.planTimeline.findIndex(
+                (e) => e && e.itemIndex === nextStep.itemIndex && Number(e.set) === Number(setToRun),
+              );
+                if (timelineIndex === -1) {
+                  timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextStep.itemIndex);
+                }
+                if (timelineIndex !== -1) {
+                  const prevIndex = this.planTimelineIndex;
+                  this.planTimelineIndex = timelineIndex;
+                  this.addLogEntry(
+                    `DEBUG: planTimelineIndex moved ${prevIndex} → ${this.planTimelineIndex} for rest-then-continue`,
+                    "debug",
+                  );
+                }
+
+              this.planCursor = { index: nextStep.itemIndex, set: setToRun };
+              this._applyItemToUI?.(nextItem);
             }
-            if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
-
-            this.planCursor = { index: startIndex, set: this.supersetExecutor.getCompletedSets(startIndex) + 1 };
-            this._applyItemToUI?.(startItem);
             this.updatePlanSetIndicator?.();
             this.updateCurrentSetLabel?.();
-
-            const groupLabel = (nextAction.groupExercises || [])
-              .map((e) => this.planItems[e.index]?.name || 'Exercise')
-              .join(' + ');
-            this.addLogEntry(`Starting superset: ${groupLabel}`, 'info');
-            // Track last executed within group as the start (will update on progression)
-            this._lastExerciseInGroupIndex = startIndex;
-
+            try {
+              this.addLogEntry(
+                `DEBUG: after rest-then-continue — timelineIndex=${this.planTimelineIndex} cursor=${JSON.stringify(this.planCursor)}`,
+                "debug",
+              );
+            } catch (e) {}
             if (this.planPaused) {
               this._queuedPlanRun = () => this._runCurrentPlanBlock();
             } else {
               this._runCurrentPlanBlock();
             }
-          }
+          };
+
+          this.addLogEntry(
+            `Rest ${restDuration}s between group rounds → ${nextLabel}`,
+            "info",
+          );
+          this._beginRest(
+            restDuration,
+            runNext,
+            `Next: ${nextLabel}`,
+            nextSummary,
+            nextItem,
+          );
           return;
         }
 
-        if (nextAction.action === 'complete') {
-          // Plan is complete
-          this._planFinish();
-          return;
+        if (nextStep.action === "complete") {
+          // Group is complete - ensure timeline index moves to after the group's
+          // last timeline entry so regular advancement resumes correctly.
+          try {
+            const group = this.supersetExecutor.findGroupForItem(currentItemIndex);
+            if (group && Array.isArray(group.items) && group.items.length) {
+              const groupItemSet = new Set(group.items.map((it) => it.index));
+              let lastTimelineIdx = -1;
+              for (let i = 0; i < this.planTimeline.length; i++) {
+                const te = this.planTimeline[i];
+                if (te && groupItemSet.has(te.itemIndex)) {
+                  lastTimelineIdx = i;
+                }
+              }
+              if (lastTimelineIdx >= 0) {
+                const prev = this.planTimelineIndex;
+                this.planTimelineIndex = lastTimelineIdx;
+                this.addLogEntry(
+                  `DEBUG: group complete — moved planTimelineIndex ${prev} → ${this.planTimelineIndex} (group last entry)`,
+                  'debug',
+                );
+              }
+            }
+          } catch (err) {
+            /* best-effort — don't block */
+          }
+          // Do NOT disable group mode yet; check if next item is in another group
+          // Default advancement will re-enable if needed
         }
       }
 
-      // Fallback: advance timeline by default if V3 executor is not available
-      // (This should not happen in normal operation since V3 always handles progression)
+      // Default timeline-based advancement (non-group mode)
       this.planTimelineIndex += 1;
 
       if (!Array.isArray(this.planTimeline) || this.planTimelineIndex >= this.planTimeline.length) {
@@ -472,10 +347,33 @@
       }
 
       const upcomingEntry = this.planTimeline[this.planTimelineIndex];
+      const upcomingItem = upcomingEntry ? this.planItems[upcomingEntry.itemIndex] : null;
+
+      // If the upcoming item is part of a group, re-enable group execution mode
+      if (upcomingItem && this.supersetExecutor) {
+        try {
+          const upcomingIsGrouped = this.supersetExecutor.isGrouped(upcomingEntry.itemIndex);
+          if (upcomingIsGrouped) {
+            this.groupExecutionMode = true;
+            this.addLogEntry(
+              `DEBUG: upcoming item is grouped — re-enabling groupExecutionMode`,
+              'debug',
+            );
+          } else {
+            this.groupExecutionMode = false;
+            this.addLogEntry(
+              `DEBUG: upcoming item is not grouped — disabling groupExecutionMode`,
+              'debug',
+            );
+          }
+        } catch (err) {
+          this.groupExecutionMode = false;
+        }
+      }
       const viewUpcoming =
-        upcomingEntry && upcomingEntry.overrides
-          ? { ...this.planItems[upcomingEntry.itemIndex], ...upcomingEntry.overrides }
-          : this.planItems[upcomingEntry.itemIndex];
+        upcomingEntry && upcomingItem && upcomingEntry.overrides
+          ? { ...upcomingItem, ...upcomingEntry.overrides }
+          : upcomingItem;
 
       if (upcomingEntry && viewUpcoming) {
         this.planCursor = { index: upcomingEntry.itemIndex, set: upcomingEntry.set };
@@ -485,12 +383,23 @@
       this.updatePlanSetIndicator?.();
       this.updateCurrentSetLabel?.();
 
-      const restSource = upcomingEntry && this.planItems[upcomingEntry.itemIndex]
-        ? { restSec: this.planItems[upcomingEntry.itemIndex].restSec, name: this.planItems[upcomingEntry.itemIndex].name }
-        : null;
+      const lastEntry =
+        completedEntry && Number.isFinite(completedEntry.restSec)
+          ? completedEntry
+          : this._activePlanEntry && Number.isFinite(this._activePlanEntry.restSec)
+            ? this._activePlanEntry
+            : null;
+
+      const restSource =
+        lastEntry && Number.isFinite(lastEntry.restSec)
+          ? lastEntry
+          : upcomingItem && Number.isFinite(upcomingItem.restSec)
+            ? { restSec: upcomingItem.restSec, name: upcomingItem.name, type: upcomingItem.type }
+            : null;
 
       const restSec = Math.max(0, Number(restSource?.restSec) || 0);
-      const nextLabel = viewUpcoming?.name || (viewUpcoming?.type === "exercise" ? "Exercise" : "Echo Mode");
+      const nextLabel =
+        viewUpcoming?.name || (viewUpcoming?.type === "exercise" ? "Exercise" : "Echo Mode");
       const nextSummary = viewUpcoming ? this.describePlanItem(viewUpcoming) : "";
 
       this.ensureFullscreenPreference?.();

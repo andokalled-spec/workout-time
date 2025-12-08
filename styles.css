@@ -220,61 +220,6 @@ input[type="number"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
   color: var(--muted);
 }
 
-/* Superset group info icon and tooltip */
-.builder-superset-group {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  position: relative;
-  margin-left: 12px;
-}
-.builder-superset-group .superset-label {
-  color: var(--muted);
-  font-size: 12px;
-}
-.builder-superset-group input[type="text"] {
-  width: 84px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid #2a3244;
-  background: var(--panel);
-  color: var(--text);
-}
-.info-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  border: 1px solid #2a3244;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0;
-  font-size: 12px;
-}
-.info-icon:hover, .info-icon:focus {
-  border-color: var(--accent);
-  color: var(--text);
-  box-shadow: 0 0 0 3px #7aa2f733;
-  outline: none;
-}
-.superset-tooltip {
-  position: absolute;
-  top: -8px;
-  left: calc(100% + 8px);
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid #2a3244;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  white-space: nowrap;
-  z-index: 60;
-}
-.superset-tooltip.hidden { display: none; }
-
 .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .card-action {
   padding: 6px 10px;

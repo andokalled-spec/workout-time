@@ -3739,23 +3739,6 @@ class VitruvianApp {
     while (logDiv.children.length > maxEntries) {
       logDiv.removeChild(logDiv.firstChild);
     }
-
-    // Also maintain a small in-memory rolling buffer so logs can be dumped to a file
-    try {
-      if (!window._planRunnerLogBuffer) window._planRunnerLogBuffer = [];
-      const now = new Date();
-      window._planRunnerLogBuffer.push({
-        ts: now.toISOString(),
-        type: type || 'info',
-        message: String(message)
-      });
-      const MAX_BUFFER = 200;
-      if (window._planRunnerLogBuffer.length > MAX_BUFFER) {
-        window._planRunnerLogBuffer.splice(0, window._planRunnerLogBuffer.length - MAX_BUFFER);
-      }
-    } catch (e) {
-      // ignore buffer failures
-    }
   }
 
   updateStopButtonState() {
@@ -9785,7 +9768,7 @@ class VitruvianApp {
    * Call this after this.planItems is set.
    */
   initializeGroupExecution() {
-    if (!window.SupersetExecutorV3 || !this.planItems || this.planItems.length === 0) {
+    if (!window.SupersetExecutorV2 || !this.planItems || this.planItems.length === 0) {
       return;
     }
 
@@ -9797,15 +9780,14 @@ class VitruvianApp {
         "debug",
       );
       // Dump full items to console for inspection
-      console.debug('Plan items passed to SupersetExecutorV3:', JSON.stringify(this.planItems.map(i => ({ name: i.name, groupNumber: i.groupNumber, sets: i.sets }))));
+      console.debug('Plan items passed to SupersetExecutorV2:', JSON.stringify(this.planItems.map(i => ({ name: i.name, groupNumber: i.groupNumber, sets: i.sets }))));
     } catch (e) {
       /* best effort */
     }
 
     // Initialize executor with planItems
-    this.supersetExecutor = new window.SupersetExecutorV3(this.planItems);
-    // V3 always checks grouping dynamically, no hasGroups() method needed
-    this.groupExecutionMode = true;  // Always enable for V3 (it handles ungrouped items automatically)
+    this.supersetExecutor = new window.SupersetExecutorV2(this.planItems);
+    this.groupExecutionMode = this.supersetExecutor.hasGroups();
 
     if (this.groupExecutionMode) {
       this.addLogEntry(
