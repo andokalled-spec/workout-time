@@ -194,7 +194,112 @@
         this.supersetExecutor.completeSet(this.planCursor.index);
       }
 
-      // Get next action from V3 executor
+      // Record the just-completed exercise as the last executed within the active group
+      // so that rest-between-rounds uses that exercise's `restSec`.
+      if (this._currentGroupNumber && this.planCursor && Array.isArray(this._currentGroupExercises)) {
+        const justCompletedIdx = this.planCursor.index;
+        if (justCompletedIdx !== null && this._currentGroupExercises.indexOf(justCompletedIdx) !== -1) {
+          this._lastExerciseInGroupIndex = justCompletedIdx;
+        }
+      }
+
+      // HANDLE active group continuation first (if a group is already in progress)
+      if (this.supersetExecutor && this._currentGroupNumber) {
+        try {
+          const groupAction = this.supersetExecutor.getNextGroupAction(this._currentGroupNumber);
+          if (groupAction.action === 'next-exercise-in-group') {
+            const nextIdx = groupAction.exerciseIndex;
+            // Determine order positions to detect round wrap
+            const groupOrder = Array.isArray(this._currentGroupExercises) ? this._currentGroupExercises : [];
+            const lastIdx = this._lastExerciseInGroupIndex;
+            const posLast = lastIdx !== null && lastIdx !== undefined ? groupOrder.indexOf(lastIdx) : -1;
+            const posNext = groupOrder.indexOf(nextIdx);
+
+            // If next position is before or equal to last position, we've wrapped (round complete)
+            const wrapped = posNext <= posLast && posLast !== -1;
+
+            if (wrapped) {
+              // End of round: determine rest or completion
+              const roundResult = this.supersetExecutor.completeGroupRound(lastIdx, this._currentGroupNumber);
+              if (roundResult.action === 'rest-then-continue') {
+                const restSeconds = roundResult.restSeconds || 60;
+                const runNext = () => {
+                  // Continue at the specified exerciseIndex
+                  const targetIdx = roundResult.exerciseIndex ?? nextIdx;
+                  const targetItem = this.planItems[targetIdx];
+                  if (targetItem) {
+                    let timelineIndex = this.planTimeline.findIndex(
+                      (e) => e && e.itemIndex === targetIdx && Number(e.set) === Number(this.supersetExecutor.getCompletedSets(targetIdx) + 1),
+                    );
+                    if (timelineIndex === -1) {
+                      timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === targetIdx);
+                    }
+                    if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
+                    this.planCursor = { index: targetIdx, set: this.supersetExecutor.getCompletedSets(targetIdx) + 1 };
+                    this._applyItemToUI?.(targetItem);
+                    this.updatePlanSetIndicator?.();
+                    this.updateCurrentSetLabel?.();
+                    if (this.planPaused) {
+                      this._queuedPlanRun = () => this._runCurrentPlanBlock();
+                    } else {
+                      this._runCurrentPlanBlock();
+                    }
+                  }
+                };
+                const nextLabel = this.planItems[roundResult.exerciseIndex]?.name || 'Exercise';
+                const nextSummary = this.describePlanItem(this.planItems[roundResult.exerciseIndex]) || '';
+                this.addLogEntry(`Rest ${restSeconds}s between group rounds → ${nextLabel}`, 'info');
+                this._beginRest(restSeconds, runNext, `Next: ${nextLabel}`, nextSummary, this.planItems[roundResult.exerciseIndex]);
+                return;
+              }
+              if (roundResult.action === 'group-complete') {
+                // Group finished — clear active group and fall through to top-level progression
+                this._currentGroupNumber = null;
+                this._currentGroupExercises = null;
+                this._lastExerciseInGroupIndex = null;
+              }
+            }
+
+            // No wrap or group still active — jump to next exercise in group
+            const nextItem = this.planItems[nextIdx];
+            if (nextItem) {
+              let timelineIndex = this.planTimeline.findIndex(
+                (e) => e && e.itemIndex === nextIdx && Number(e.set) === Number(groupAction.setNumber),
+              );
+              if (timelineIndex === -1) {
+                timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === nextIdx);
+              }
+              if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
+              this.planCursor = { index: nextIdx, set: groupAction.setNumber };
+              this._applyItemToUI?.(nextItem);
+              this.updatePlanSetIndicator?.();
+              this.updateCurrentSetLabel?.();
+              // track last executed within group
+              this._lastExerciseInGroupIndex = nextIdx;
+              if (this.planPaused) {
+                this._queuedPlanRun = () => this._runCurrentPlanBlock();
+              } else {
+                this._runCurrentPlanBlock();
+              }
+            }
+            return;
+          }
+          if (groupAction.action === 'group-complete') {
+            // Group finished normally
+            this._currentGroupNumber = null;
+            this._currentGroupExercises = null;
+            this._lastExerciseInGroupIndex = null;
+            // fall through to top-level nextAction below
+          }
+        } catch (err) {
+          // If group continuation fails, clear state and continue
+          this._currentGroupNumber = null;
+          this._currentGroupExercises = null;
+          this._lastExerciseInGroupIndex = null;
+        }
+      }
+
+      // Get next top-level action from V3 executor
       if (this.supersetExecutor) {
         const nextAction = this.supersetExecutor.getNextAction();
 
@@ -229,35 +334,39 @@
         }
 
         if (nextAction.action === 'group-superset-start') {
-          // Start a new superset group
-          const firstExercise = nextAction.groupExercises[0];
-          const firstItem = this.planItems[firstExercise.index];
+          // Start a new superset group (atomic unit)
+          const groupNumber = nextAction.groupNumber;
+          const groupExercises = Array.isArray(nextAction.groupExercises) ? nextAction.groupExercises.map((e) => e.index) : [];
+          // Determine start index (executor provided currentExerciseIndex)
+          const startIndex = Number.isFinite(nextAction.currentExerciseIndex) ? nextAction.currentExerciseIndex : (groupExercises[0] || null);
+          const startItem = this.planItems[startIndex];
 
-          if (firstItem) {
-            // Find timeline index
+          if (startItem) {
+            // Persist active group metadata on runner
+            this._currentGroupNumber = groupNumber;
+            this._currentGroupExercises = groupExercises;
+            this._lastExerciseInGroupIndex = null;
+
+            // Find timeline index for the start exercise/set
             let timelineIndex = this.planTimeline.findIndex(
-              (e) => e && e.itemIndex === firstExercise.index && Number(e.set) === Number(firstExercise.completedSets + 1),
+              (e) => e && e.itemIndex === startIndex && Number(e.set) === Number(this.supersetExecutor.getCompletedSets(startIndex) + 1),
             );
             if (timelineIndex === -1) {
-              timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === firstExercise.index);
+              timelineIndex = this.planTimeline.findIndex((e) => e && e.itemIndex === startIndex);
             }
+            if (timelineIndex !== -1) this.planTimelineIndex = timelineIndex;
 
-            if (timelineIndex !== -1) {
-              this.planTimelineIndex = timelineIndex;
-            }
-
-            this.planCursor = { index: firstExercise.index, set: firstExercise.completedSets + 1 };
-            this._applyItemToUI?.(firstItem);
+            this.planCursor = { index: startIndex, set: this.supersetExecutor.getCompletedSets(startIndex) + 1 };
+            this._applyItemToUI?.(startItem);
             this.updatePlanSetIndicator?.();
             this.updateCurrentSetLabel?.();
 
-            const groupLabel = nextAction.groupExercises
+            const groupLabel = (nextAction.groupExercises || [])
               .map((e) => this.planItems[e.index]?.name || 'Exercise')
               .join(' + ');
-            this.addLogEntry(
-              `Starting superset: ${groupLabel}`,
-              'info',
-            );
+            this.addLogEntry(`Starting superset: ${groupLabel}`, 'info');
+            // Track last executed within group as the start (will update on progression)
+            this._lastExerciseInGroupIndex = startIndex;
 
             if (this.planPaused) {
               this._queuedPlanRun = () => this._runCurrentPlanBlock();

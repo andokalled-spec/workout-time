@@ -53,11 +53,13 @@ class SupersetExecutorV3 {
    * (even if other exercises are interspersed between them)
    */
   getGroupExercises(groupNumber) {
+    if (groupNumber === null || groupNumber === undefined) return [];
     const groupId = String(groupNumber).trim();
+    if (!groupId) return [];
     const indices = [];
     for (let i = 0; i < this.planItems.length; i += 1) {
       const item = this.planItems[i];
-      const itemGroupId = item.groupNumber && String(item.groupNumber).trim();
+      const itemGroupId = (item && item.groupNumber) ? String(item.groupNumber).trim() : '';
       if (itemGroupId === groupId) {
         indices.push(i);
       }
