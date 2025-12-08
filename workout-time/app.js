@@ -9768,7 +9768,7 @@ class VitruvianApp {
    * Call this after this.planItems is set.
    */
   initializeGroupExecution() {
-    if (!window.SupersetExecutorV2 || !this.planItems || this.planItems.length === 0) {
+    if (!window.SupersetExecutorV3 || !this.planItems || this.planItems.length === 0) {
       return;
     }
 
@@ -9780,14 +9780,15 @@ class VitruvianApp {
         "debug",
       );
       // Dump full items to console for inspection
-      console.debug('Plan items passed to SupersetExecutorV2:', JSON.stringify(this.planItems.map(i => ({ name: i.name, groupNumber: i.groupNumber, sets: i.sets }))));
+      console.debug('Plan items passed to SupersetExecutorV3:', JSON.stringify(this.planItems.map(i => ({ name: i.name, groupNumber: i.groupNumber, sets: i.sets }))));
     } catch (e) {
       /* best effort */
     }
 
     // Initialize executor with planItems
-    this.supersetExecutor = new window.SupersetExecutorV2(this.planItems);
-    this.groupExecutionMode = this.supersetExecutor.hasGroups();
+    this.supersetExecutor = new window.SupersetExecutorV3(this.planItems);
+    // V3 always checks grouping dynamically, no hasGroups() method needed
+    this.groupExecutionMode = true;  // Always enable for V3 (it handles ungrouped items automatically)
 
     if (this.groupExecutionMode) {
       this.addLogEntry(
