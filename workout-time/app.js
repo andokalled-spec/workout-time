@@ -3739,6 +3739,23 @@ class VitruvianApp {
     while (logDiv.children.length > maxEntries) {
       logDiv.removeChild(logDiv.firstChild);
     }
+
+    // Also maintain a small in-memory rolling buffer so logs can be dumped to a file
+    try {
+      if (!window._planRunnerLogBuffer) window._planRunnerLogBuffer = [];
+      const now = new Date();
+      window._planRunnerLogBuffer.push({
+        ts: now.toISOString(),
+        type: type || 'info',
+        message: String(message)
+      });
+      const MAX_BUFFER = 200;
+      if (window._planRunnerLogBuffer.length > MAX_BUFFER) {
+        window._planRunnerLogBuffer.splice(0, window._planRunnerLogBuffer.length - MAX_BUFFER);
+      }
+    } catch (e) {
+      // ignore buffer failures
+    }
   }
 
   updateStopButtonState() {

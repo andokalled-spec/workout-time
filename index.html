@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Exercise Library Explorer</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://leeoniya.github.io/uPlot/dist/uPlot.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+    />
+  </head>
+  <body>
+    <header class="container">
+      <h1>Exercise Library</h1>
+      <p class="sub">Browse by muscle group, filter by equipment, and preview videos by hovering over thumbnails. Click a card to view the video larger.</p>
+    </header>
+
+    <main class="container layout">
+      <div class="view-bar">
+        <div class="view-links">
+          <button type="button" id="tabLibrary" class="view-link active" data-target="libraryPanel">Exercise Library</button>
+          <button type="button" id="tabBuilder" class="view-link" data-target="builderPanel">Workout Builder <span id="builderCount" class="badge">0</span></button>
+          <button type="button" id="tabAnalytics" class="view-link" data-target="analyticsPanel">Analytics Dashboard</button>
+          <button type="button" id="tabWorkout" class="view-link" data-target="workoutPanel">Workout Time</button>
+        </div>
+      </div>
+
+      <aside class="sidebar">
+        <h2>Filters</h2>
+        <div class="search-sort">
+          <label>
+            Search
+            <div class="search-group">
+              <input id="searchInput" type="text" placeholder="Search exercises..." />
+              <button id="searchClear" class="btn subtle small" title="Clear search">Clear</button>
+            </div>
+          </label>
+        </div>
+        <div class="filters-sections">
+          <div class="filter-block">
+            <div class="block-head">
+              <span class="label">Muscle Groups</span>
+              <button id="clearMuscles" class="btn subtle" title="Clear muscle filter">Clear</button>
+            </div>
+            <div id="muscleFilters" class="btnrow"></div>
+            <div class="modebar" id="muscleModeBar" aria-hidden="true">
+              <span class="muted small">Match:</span>
+              <div class="seg" role="tablist" aria-label="Muscle group match mode">
+                <button id="muscleModeOR" class="seg-btn active" role="tab" aria-selected="true" title="OR: match ANY selected">OR</button>
+                <button id="muscleModeAND" class="seg-btn" role="tab" aria-selected="false" title="AND: match ALL selected">AND</button>
+              </div>
+            </div>
+          </div>
+          <div class="filter-block">
+            <div class="block-head">
+              <span class="label">Muscles</span>
+              <button id="clearSubMuscles" class="btn subtle" title="Clear specific muscles filter">Clear</button>
+            </div>
+            <div id="subMuscleFilters" class="btnrow"></div>
+            <div class="modebar" id="subMuscleModeBar" aria-hidden="true">
+              <span class="muted small">Match:</span>
+              <div class="seg" role="tablist" aria-label="Muscles match mode">
+                <button id="subMuscleModeOR" class="seg-btn active" role="tab" aria-selected="true" title="OR: match ANY selected">OR</button>
+                <button id="subMuscleModeAND" class="seg-btn" role="tab" aria-selected="false" title="AND: match ALL selected">AND</button>
+              </div>
+            </div>
+          </div>
+          <div class="filter-block">
+            <div class="block-head">
+              <span class="label">Equipment</span>
+              <button id="clearEquipment" class="btn subtle" title="Clear equipment filter">Clear</button>
+            </div>
+            <div id="equipmentFilters" class="btnrow"></div>
+            <div class="modebar" id="equipmentModeBar" aria-hidden="true">
+              <span class="muted small">Match:</span>
+              <div class="seg" role="tablist" aria-label="Equipment match mode">
+                <button id="equipmentModeOR" class="seg-btn active" role="tab" aria-selected="true" title="OR: match ANY selected">OR</button>
+                <button id="equipmentModeAND" class="seg-btn" role="tab" aria-selected="false" title="AND: match ALL selected">AND</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="content">
+        <div id="libraryPanel" class="panel active">
+          <div class="grid-head">
+            <h2 id="gridTitle">Exercises</h2>
+          </div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="sortToggle" class="btn sort-toggle" title="Toggle alphabetical order">A-Z</button>
+              <button id="toggleBuilderFilter" class="btn small" title="Toggle to show only exercises in the workout">Show Workout Only</button>
+              <button id="randomizeLibrary" class="btn small" title="Shuffle exercises randomly">Shuffle</button>
+            </div>
+            <div class="toolbar-right">
+              <div id="count" class="muted"></div>
+              <div class="custom-exercise-sync">
+                <button id="customExerciseSync" class="btn small" type="button" title="Sync Dropbox custom exercises into the library">Sync Custom Exercises</button>
+                <div id="customExerciseSyncStatus" class="custom-exercise-sync-status muted small" aria-live="polite"></div>
+              </div>
+            </div>
+          </div>
+          <div id="activeFilters" class="active-filters muted small"></div>
+          <div id="exerciseGrid" class="grid"></div>
+        </div>
+
+        <div id="builderPanel" class="panel">
+          <div class="builder-header">
+            <div class="builder-info">
+              <div id="builderSummary" class="muted">No exercises selected yet.</div>
+              <div id="builderMuscles" class="muted small"></div>
+            </div>
+            <div class="builder-actions">
+              <button id="connectDropbox" class="btn small" title="Manage Dropbox connection">Connect Dropbox</button>
+              <button id="exportWorkout" class="btn small" title="Download as Excel">Export to Excel</button>
+              <button id="printWorkout" class="btn small" title="Print workout">Print</button>
+              <button id="shareWorkout" class="btn small" title="Copy a shareable workout link">Share</button>
+              <button id="shuffleBuilder" class="btn small" title="Randomize exercise order">Shuffle</button>
+              <button id="groupEquipment" class="btn small" title="Group exercises by equipment">Group Equipment</button>
+              <button id="groupMuscles" class="btn small" title="Group exercises by muscles">Group Muscles</button>
+              <button id="groupMuscleGroups" class="btn small" title="Group exercises by muscle groups">Group Muscle Groups</button>
+              <button id="unitToggle" class="btn small" title="Switch between pounds and kilograms">Units: lbs</button>
+              <button id="clearWorkout" class="btn danger small" title="Remove all exercises">Clear</button>
+              <label class="option"><input type="checkbox" id="includeCheckboxes" /> Include checkboxes</label>
+            </div>
+          </div>
+          <div class="plan-controls">
+            <div class="plan-name-field">
+              <div class="plan-name-header">
+                <label for="planNameInput">Plan Name</label>
+                <div class="plan-sync-controls">
+                  <button id="syncToDropbox" class="btn small primary" title="Sync workout plan to Dropbox">Sync to Dropbox</button>
+                  <div id="builderSyncStatus" class="builder-sync-status muted small" aria-live="polite"></div>
+                </div>
+              </div>
+              <div class="plan-name-input-row">
+                <input id="planNameInput" type="text" placeholder="Plan name (e.g., Push Day A)" />
+                <button type="button" id="planSaveButton" class="btn small primary" title="Save this plan locally">Save Plan</button>
+                <button type="button" id="planRenameButton" class="btn small" title="Rename the selected plan">Rename Selected</button>
+              </div>
+              <div class="plan-name-input-row">
+                <select id="planNameSelect" title="Select a saved plan" aria-label="Saved plans"></select>
+                <button type="button" id="refreshPlanNames" class="btn small" title="Refresh available plans">Refresh</button>
+                <button type="button" id="deletePlanFromBuilder" class="btn small danger" title="Delete selected plan from Dropbox">Delete</button>
+              </div>
+              <div class="plan-name-hint">Selecting a plan loads its exercises into the builder.</div>
+            </div>
+            <div class="schedule-fields">
+              <div class="schedule-field">
+                <label for="scheduleStart">Start Date</label>
+                <input type="text" id="scheduleStart" placeholder="Select date" />
+              </div>
+              <div class="schedule-field">
+                <label>Days of Week</label>
+                <div id="scheduleDays" class="schedule-days" role="group" aria-label="Select training days">
+                  <button type="button" data-day="0">Sun</button>
+                  <button type="button" data-day="1">Mon</button>
+                  <button type="button" data-day="2">Tue</button>
+                  <button type="button" data-day="3">Wed</button>
+                  <button type="button" data-day="4">Thu</button>
+                  <button type="button" data-day="5">Fri</button>
+                  <button type="button" data-day="6">Sat</button>
+                </div>
+              </div>
+              <div class="schedule-field">
+                <label for="scheduleInterval">Repeat Every</label>
+                <div class="schedule-repeat">
+                  <input type="number" id="scheduleInterval" min="1" value="1" />
+                  <span>week(s)</span>
+                </div>
+              </div>
+              <div class="schedule-field">
+                <label for="scheduleEnd">End Date</label>
+                <input type="text" id="scheduleEnd" placeholder="Select date" />
+              </div>
+            </div>
+          </div>
+          <div id="scheduleCalendar" class="schedule-calendar" aria-live="polite"></div>
+
+          <div id="customExerciseBanner" class="custom-exercise-banner muted small" aria-live="polite"></div>
+          <div id="builderList" class="builder-list"></div>
+          <div id="customExerciseModal" class="custom-exercise-modal hidden" aria-hidden="true">
+            <div class="custom-exercise-dialog" role="dialog" aria-modal="true" aria-labelledby="customExerciseModalTitle">
+              <div class="custom-exercise-header">
+                <h3 id="customExerciseModalTitle">Add Custom Exercise</h3>
+                <button type="button" id="customExerciseClose" class="btn icon" aria-label="Close custom exercise dialog">&times;</button>
+              </div>
+              <div class="custom-exercise-body">
+                <label class="custom-field">
+                  <span>Name</span>
+                  <input type="text" id="customExerciseName" placeholder="e.g., Tempo Push-Up" />
+                </label>
+                <div class="custom-field">
+                  <span>Major Muscle Groups</span>
+                  <div id="customExerciseMuscleGroups" class="custom-checkbox-grid"></div>
+                </div>
+                <div class="custom-field">
+                  <span>Muscles</span>
+                  <div id="customExerciseMuscles" class="custom-checkbox-grid"></div>
+                </div>
+                <div class="custom-field">
+                  <span>Equipment</span>
+                  <div id="customExerciseEquipment" class="custom-checkbox-grid"></div>
+                </div>
+                <div id="customExerciseMessage" class="custom-exercise-message" aria-live="polite"></div>
+              </div>
+              <div class="custom-exercise-actions">
+                <button type="button" id="customExerciseCancel" class="btn">Cancel</button>
+                <button type="button" id="customExerciseSubmit" class="btn primary">Add Custom Exercise</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="analyticsPanel" class="panel">
+          <div class="analytics-dashboard">
+            <div class="analytics-header">
+              <div>
+                <h2>Analytics Dashboard</h2>
+                <p class="muted">
+                  Sync Vitruvian workout files from your personal Dropbox account to track personal records and strength changes.
+                </p>
+              </div>
+              <div class="analytics-sync">
+                <button id="analyticsConnectDropbox" class="btn small" type="button">
+                  Connect Dropbox
+                </button>
+                <button id="analyticsSyncButton" class="btn small primary" type="button">
+                  Sync Dropbox Data
+                </button>
+                <button
+                  id="analyticsAlignIdsButton"
+                  class="btn small"
+                  type="button"
+                  title="Backfill missing exercise IDs in earlier workouts using set names from newer logs."
+                >
+                  Align Workout IDs
+                </button>
+                <button id="analyticsUnitToggle" class="btn small" type="button" title="Switch between pounds and kilograms">
+                  Units: lbs
+                </button>
+                <div id="analyticsSyncStatus" class="analytics-sync-status" aria-live="polite"></div>
+              </div>
+            </div>
+
+            <div class="analytics-filter-grid">
+              <div class="analytics-filter">
+                <label for="analyticsExerciseFilter">Exercise filter</label>
+                <select id="analyticsExerciseFilter" class="analytics-select" disabled>
+                  <option value="">Connect Dropbox to load workouts</option>
+                </select>
+                <p class="analytics-filter-hint">
+                  Exercises leverage the newest <code>id_new</code> identifiers from Dropbox workout exports. This filter will be reused as more charts roll out.
+                </p>
+              </div>
+              <div class="analytics-filter">
+                <div class="analytics-filter-label">Time range</div>
+                <div class="analytics-range-buttons" id="analyticsRangeButtons" role="group" aria-label="Analytics time range">
+                  <button type="button" class="analytics-range-btn is-active" data-analytics-range="30">Past Month</button>
+                  <button type="button" class="analytics-range-btn" data-analytics-range="90">Past 3 Months</button>
+                  <button type="button" class="analytics-range-btn" data-analytics-range="180">Past 6 Months</button>
+                  <button type="button" class="analytics-range-btn" data-analytics-range="365">Past Year</button>
+                </div>
+                <p class="analytics-filter-hint">These filters stay in sync for future analytics cards.</p>
+              </div>
+            </div>
+
+            <div class="analytics-chart-card">
+              <div class="analytics-chart-header">
+                <div>
+                  <h3>Personal Record Trend</h3>
+                  <p id="analyticsSelectionLabel">Select an exercise to visualize daily PRs.</p>
+                </div>
+                <div class="analytics-metrics">
+                  <div class="analytics-metric analytics-metric--dual">
+                    <span class="analytics-metric-label">Peak PR</span>
+                    <div class="analytics-metric-split">
+                      <div class="analytics-metric-split__item analytics-metric-split__item--concentric">
+                        <span class="analytics-metric-split__label">Concentric</span>
+                        <strong id="analyticsPeakConcentric">—</strong>
+                        <small id="analyticsPeakConcentricDate"></small>
+                      </div>
+                      <div class="analytics-metric-split__item analytics-metric-split__item--eccentric">
+                        <span class="analytics-metric-split__label">Eccentric</span>
+                        <strong id="analyticsPeakEccentric">—</strong>
+                        <small id="analyticsPeakEccentricDate"></small>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="analytics-metric analytics-metric--dual">
+                    <span class="analytics-metric-label">Baseline</span>
+                    <div class="analytics-metric-split">
+                      <div class="analytics-metric-split__item analytics-metric-split__item--concentric">
+                        <span class="analytics-metric-split__label">Concentric</span>
+                        <strong id="analyticsBaselineConcentric">—</strong>
+                        <small id="analyticsBaselineConcentricDate"></small>
+                      </div>
+                      <div class="analytics-metric-split__item analytics-metric-split__item--eccentric">
+                        <span class="analytics-metric-split__label">Eccentric</span>
+                        <strong id="analyticsBaselineEccentric">—</strong>
+                        <small id="analyticsBaselineEccentricDate"></small>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="analytics-metric analytics-metric--gain analytics-metric--dual">
+                    <span class="analytics-metric-label">Strength Gain</span>
+                    <div class="analytics-metric-split analytics-metric-split--compact">
+                      <div class="analytics-metric-split__item analytics-metric-split__item--concentric">
+                        <span class="analytics-metric-split__label">Concentric</span>
+                        <strong id="analyticsDeltaConcentricPct">0%</strong>
+                        <small id="analyticsDeltaConcentricValue">—</small>
+                      </div>
+                      <div class="analytics-metric-split__item analytics-metric-split__item--eccentric">
+                        <span class="analytics-metric-split__label">Eccentric</span>
+                        <strong id="analyticsDeltaEccentricPct">0%</strong>
+                        <small id="analyticsDeltaEccentricValue">—</small>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="analytics-metric analytics-metric--workload" id="analyticsWorkloadMetric">
+                    <span class="analytics-metric-label">Work Output</span>
+                    <div class="analytics-workload-grid">
+                      <button
+                        type="button"
+                        class="analytics-workload-cell analytics-workload-cell--primary"
+                        id="analyticsWorkloadTrigger"
+                        aria-controls="analyticsWorkloadTooltip"
+                        aria-expanded="false"
+                      >
+                        <span class="analytics-workload-cell__label">Total Volume</span>
+                        <strong id="analyticsTotalVolume">—</strong>
+                        <small>Hover or focus for rep mix</small>
+                      </button>
+                      <div class="analytics-workload-cell">
+                        <span class="analytics-workload-cell__label">Total Reps</span>
+                        <strong id="analyticsTotalReps">—</strong>
+                        <small>Working reps only</small>
+                      </div>
+                      <div class="analytics-workload-cell">
+                        <span class="analytics-workload-cell__label">Avg Load</span>
+                        <strong id="analyticsAverageLoad">—</strong>
+                        <small>Total load ÷ reps</small>
+                      </div>
+                    </div>
+                    <div class="analytics-workload-tooltip" id="analyticsWorkloadTooltip" role="tooltip" aria-hidden="true">
+                      <div class="analytics-workload-tooltip__header">
+                        <span>Volume mix by rep type</span>
+                        <strong id="analyticsWorkloadTooltipTotal">—</strong>
+                      </div>
+                      <div class="analytics-workload-tooltip__summary">
+                        <div class="analytics-workload-tooltip__summary-item analytics-workload-tooltip__summary-item--concentric">
+                          <span>Avg Concentric</span>
+                          <strong id="analyticsWorkloadAvgConcentric">—</strong>
+                        </div>
+                        <div class="analytics-workload-tooltip__summary-item analytics-workload-tooltip__summary-item--eccentric">
+                          <span>Avg Eccentric</span>
+                          <strong id="analyticsWorkloadAvgEccentric">—</strong>
+                        </div>
+                      </div>
+                      <div class="analytics-workload-tooltip__content">
+                        <div class="analytics-workload-pie" id="analyticsWorkloadPie" aria-hidden="true"></div>
+                        <div class="analytics-workload-breakdown" id="analyticsWorkloadBreakdown"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="analytics-chart-meta">
+                <span id="analyticsRangeLabel">Past 30 days</span>
+                <span>&middot;</span>
+                <span id="analyticsPointCount">0 days recorded</span>
+                <span>&middot;</span>
+                <span id="analyticsChartUnit">kg</span>
+              </div>
+              <div class="analytics-chart-wrapper" id="analyticsChartWrapper">
+                <div class="analytics-empty-state" id="analyticsEmptyState">
+                  Connect Dropbox and sync to populate analytics.
+                </div>
+                <div id="analyticsPrChart" class="analytics-chart" role="img" aria-label="Personal record analytics chart"></div>
+              </div>
+            </div>
+
+            <div class="analytics-chart-card">
+              <div class="analytics-chart-header">
+                <div>
+                  <h3>Monthly Volume Breakdown</h3>
+                  <p>Stacked bars show monthly total volume (weight × reps), grouped by exercise.</p>
+                </div>
+                <div class="analytics-metrics analytics-metrics--legend" id="analyticsMonthlyLegend"></div>
+              </div>
+              <div class="analytics-chart-meta">
+                <span>Ordered by heaviest exercises first</span>
+              </div>
+              <div class="analytics-bar-chart" id="analyticsMonthlyChartWrapper">
+                <div class="analytics-empty-state" id="analyticsMonthlyEmpty">
+                  No workouts available for this period.
+                </div>
+                <div class="analytics-bar-chart__content">
+                  <div class="analytics-axis-column">
+                    <div id="analyticsMonthlyAxis" class="analytics-bar-chart__axis"></div>
+                    <div class="analytics-axis-spacer" aria-hidden="true"></div>
+                  </div>
+                  <div class="analytics-bar-chart__viewport">
+                    <div class="analytics-bar-chart__bars-wrapper">
+                      <div id="analyticsMonthlyPeakLine" class="analytics-peak-line" aria-hidden="true"></div>
+                      <div id="analyticsMonthlyChart" class="analytics-bar-chart__bars"></div>
+                      <div id="analyticsMonthlyPeakLabel" class="analytics-axis-total analytics-peak-label"></div>
+                    </div>
+                    <div id="analyticsMonthlyXAxis" class="analytics-bar-chart__x"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="container muted small">
+      <p>
+        Tip: open this folder with a local web server (e.g. <code>python -m http.server</code>) to avoid browser file:// restrictions when loading <code>exercise_dump.json</code>.
+      </p>
+    </footer>
+
+    <!-- Modal for full video view -->
+    <div id="modal" class="modal hidden" aria-hidden="true" role="dialog" aria-label="Video dialog">
+      <div class="dialog">
+        <button id="modalClose" class="close" aria-label="Close">&times;</button>
+        <video id="modalVideo" controls playsinline style="width:100%;height:auto;background:#000"></video>
+        <div id="modalNotice" class="modal-notice muted small"></div>
+      </div>
+    </div>
+
+    <button id="scrollUp" class="scroll-btn up" title="Back to top">&uarr;</button>
+
+    <button id="scrollDown" class="scroll-btn down" title="Jump to bottom">&darr;</button>
+
+    <script src="https://unpkg.com/dropbox@10.34.0/dist/Dropbox-sdk.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="workout-time/dropbox.js"></script>
+    <script src="https://leeoniya.github.io/uPlot/dist/uPlot.iife.js"></script>
+    <script type="module" src="js/main.js"></script>
+  </body>
+  </html>
